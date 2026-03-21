@@ -3,13 +3,18 @@ import os
 import json
 from sqlalchemy import func
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# ✅ SAFE INITIALIZATION (NO CRASH)
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key) if api_key else None
 
 
 # =========================
 # 🔍 SYSTEM ANALYSIS
 # =========================
 def analyze_system(summary):
+    if not client:
+        return "AI service not configured"
+
     try:
         summary_text = json.dumps(summary, indent=2)
     except Exception:
@@ -31,6 +36,9 @@ def analyze_system(summary):
 # 💡 BUSINESS ADVICE
 # =========================
 def business_advice(context):
+    if not client:
+        return "AI service not configured"
+
     try:
         context_text = json.dumps(context, indent=2)
     except Exception:
@@ -52,6 +60,8 @@ def business_advice(context):
 # 🧠 MAIN AI CHAT BRAIN
 # =========================
 def ai_chat_brain(prompt, context):
+    if not client:
+        return "AI service not configured"
 
     try:
         context_text = json.dumps(context, indent=2)
@@ -201,7 +211,7 @@ def forecast_risks(db):
 
 
 # =========================
-# 📦 PRODUCT INTELLIGENCE (FIXED)
+# 📦 PRODUCT INTELLIGENCE
 # =========================
 def analyze_product_demand(db):
 
@@ -228,7 +238,7 @@ def analyze_product_demand(db):
 
 
 # =========================
-# 💰 PRICING INTELLIGENCE (FIXED)
+# 💰 PRICING INTELLIGENCE
 # =========================
 def analyze_pricing_intelligence(db):
 
@@ -302,6 +312,9 @@ def generate_decisions(context):
 # 🧠 AUTOPILOT SUMMARY
 # =========================
 def generate_autopilot_summary(context):
+
+    if not client:
+        return "AI service not configured"
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
