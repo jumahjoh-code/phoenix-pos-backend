@@ -17,10 +17,10 @@ def create_sale(db, items, total, amount_paid, user_id=None):
         # CREATE SALE (INITIAL)
         # =========================
         sale = Sale(
-            total_amount=0,  # 🔥 recalculated
+            total_amount=0,
             amount_paid=amount_paid,
             balance=0,
-            status="pending",   # ✅ FIXED (was "completed")
+            status="pending",  # will update later
             user_id=user_id
         )
 
@@ -35,7 +35,7 @@ def create_sale(db, items, total, amount_paid, user_id=None):
             product = db.query(Product).filter(Product.id == item["product_id"]).first()
 
             if not product:
-                raise HTTPException(status_code=404, detail="Product not found")
+                raise HTTPException(status_code=404, detail=f"Product not found: {item['product_id']}")
 
             quantity = int(item["quantity"])
 
@@ -46,14 +46,10 @@ def create_sale(db, items, total, amount_paid, user_id=None):
                     detail=f"{product.name} out of stock"
                 )
 
-            # 🔥 SAFE PRICE RESOLUTION
-            unit_price = (
-                item.get("unit_price") or
-                getattr(product, "price", None) or
-                getattr(product, "retail_price", 0)
-            )
+            # 🔥 STRICT BACKEND PRICE CONTROL (NO FRONTEND TRUST)
+            unit_price = float(getattr(product, "selling_price", 0))
 
-            if not unit_price or unit_price <= 0:
+            if unit_price <= 0:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid price for {product.name}"
@@ -71,7 +67,7 @@ def create_sale(db, items, total, amount_paid, user_id=None):
                 sale_id=sale.id,
                 product_id=product.id,
                 quantity=quantity,
-                price=unit_price,   # ✅ maps unit_price → DB price
+                price=unit_price,
                 cost_price=cost_price
             )
 
@@ -86,6 +82,12 @@ def create_sale(db, items, total, amount_paid, user_id=None):
         sale.total_amount = total_amount
         sale.cost_total = cost_total
         sale.balance = max(total_amount - amount_paid, 0)
+
+        # 🔥 AUTO STATUS LOGIC (POS + SHOP READY)
+        if amount_paid >= total_amount:
+            sale.status = "completed"
+        else:
+            sale.status = "pending"
 
         db.commit()
         db.refresh(sale)
