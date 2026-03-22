@@ -33,6 +33,9 @@ class Sale(Base):
 
     receipt_number = Column(String, unique=True, index=True, nullable=True)
 
+    # 🔥 OFFLINE DUPLICATE PROTECTION
+    offline_id = Column(String, unique=True, index=True, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # RELATIONSHIPS
@@ -87,7 +90,7 @@ class Sale(Base):
                 created_at=self.created_at or func.now()
             ))
 
-        # MIXED PAYMENT (dynamic split)
+        # MIXED PAYMENT
         elif self.payment_method == "mixed":
             cash_part = self.amount_paid * 0.5
             mpesa_part = self.amount_paid * 0.5
@@ -137,6 +140,7 @@ class Sale(Base):
         return {
             "sale_id": self.id,
             "receipt_number": self.receipt_number,
+            "offline_id": self.offline_id,
             "source": self.source,
             "status": self.status,
             "total_amount": self.total_amount,

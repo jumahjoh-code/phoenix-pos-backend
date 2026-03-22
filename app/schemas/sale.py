@@ -19,6 +19,9 @@ class SaleCreate(BaseModel):
     customer_id: Optional[int] = None
     user_id: Optional[int] = None
 
+    # 🔥 OFFLINE DUPLICATE PROTECTION
+    offline_id: Optional[str] = None
+
     # MULTI-CHANNEL
     source: Literal["pos", "ecommerce"] = "pos"
 
@@ -74,7 +77,6 @@ class SaleCreate(BaseModel):
     def validate_status(cls, v, values):
         method = values.get("payment_method", "cash")
 
-        # 🔥 If mpesa, allow pending
         if method == "mpesa" and v not in ["pending", "paid"]:
             raise ValueError("Invalid status for M-Pesa")
 
@@ -84,6 +86,13 @@ class SaleCreate(BaseModel):
     def validate_total(cls, v):
         if v <= 0:
             raise ValueError("Total must be greater than zero")
+        return v
+
+    @validator("offline_id")
+    def validate_offline_id(cls, v):
+        # 🔥 Ensure clean offline IDs (prevents weird duplicates)
+        if v and len(v) < 5:
+            raise ValueError("Invalid offline_id")
         return v
 
 
