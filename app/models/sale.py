@@ -14,7 +14,7 @@ class Sale(Base):
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    total_amount = Column(Float, nullable=False)
+    total_amount = Column(Float, nullable=False, default=0)
     cost_total = Column(Float, nullable=False, default=0)
 
     amount_paid = Column(Float, nullable=False, default=0)
@@ -23,17 +23,21 @@ class Sale(Base):
     payment_method = Column(String, default="cash")
     mpesa_reference = Column(String, nullable=True)
 
-    # MULTI-CHANNEL SUPPORT
+    # =========================
+    # 🔥 MULTI-CHANNEL SUPPORT
+    # =========================
     source = Column(String, default="pos")  # pos | ecommerce
 
-    # STATUS
+    # =========================
+    # 🔥 STATUS CONTROL
+    # =========================
     status = Column(String, default="paid")  # pending | paid | cancelled
 
     sale_type = Column(String, default="retail")
 
     receipt_number = Column(String, unique=True, index=True, nullable=True)
 
-    # 🔥 OFFLINE DUPLICATE PROTECTION
+    # OFFLINE DUPLICATE PROTECTION
     offline_id = Column(String, unique=True, index=True, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -68,6 +72,11 @@ class Sale(Base):
 
         reference = self.receipt_number or f"sale_{self.id}"
 
+        description = (
+            f"POS Sale #{self.id}" if self.source == "pos"
+            else f"E-commerce Sale #{self.id}"
+        )
+
         # CASH
         if self.payment_method == "cash":
             db.add(Ledger(
@@ -75,7 +84,7 @@ class Sale(Base):
                 amount=self.amount_paid,
                 method="cash",
                 reference=reference,
-                description=f"POS Sale #{self.id}" if self.source == "pos" else f"E-commerce Sale #{self.id}",
+                description=description,
                 created_at=self.created_at or func.now()
             ))
 
@@ -86,11 +95,11 @@ class Sale(Base):
                 amount=self.amount_paid,
                 method="mpesa_business",
                 reference=self.mpesa_reference or reference,
-                description=f"M-Pesa Sale #{self.id}",
+                description=description,
                 created_at=self.created_at or func.now()
             ))
 
-        # MIXED PAYMENT
+        # MIXED
         elif self.payment_method == "mixed":
             cash_part = self.amount_paid * 0.5
             mpesa_part = self.amount_paid * 0.5
@@ -101,7 +110,7 @@ class Sale(Base):
                     amount=cash_part,
                     method="cash",
                     reference=reference,
-                    description=f"Mixed Sale (cash) #{self.id}",
+                    description=f"{description} (cash)",
                     created_at=self.created_at or func.now()
                 ),
                 Ledger(
@@ -109,13 +118,13 @@ class Sale(Base):
                     amount=mpesa_part,
                     method="mpesa_business",
                     reference=self.mpesa_reference or reference,
-                    description=f"Mixed Sale (mpesa) #{self.id}",
+                    description=f"{description} (mpesa)",
                     created_at=self.created_at or func.now()
                 )
             ])
 
     # =========================
-    # MARK AS PAID
+    # MARK AS PAID (CRITICAL FIX)
     # =========================
     def mark_as_paid(self, db: Session, amount: float, method: str, mpesa_ref: str = None):
 
@@ -129,6 +138,7 @@ class Sale(Base):
 
         db.commit()
 
+        # 🔥 Ledger only AFTER status is paid
         self.record_ledger_entries(db)
 
         db.commit()

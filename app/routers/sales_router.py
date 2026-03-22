@@ -51,7 +51,7 @@ def build_receipt(sale):
 
 
 # =========================
-# 🔥 RECORD SALE (FINAL)
+# 🔥 RECORD SALE
 # =========================
 @router.post("/")
 def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
@@ -89,6 +89,11 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
                 )
 
         # =========================
+        # 🔥 DETERMINE SOURCE
+        # =========================
+        source = data.source or "pos"
+
+        # =========================
         # 🔥 CREATE SALE
         # =========================
         sale = create_sale(
@@ -96,32 +101,38 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
             items=[item.dict() for item in data.items],
             total=data.total_amount,
             amount_paid=data.amount_paid or 0,
-            user_id=data.user_id
+            user_id=data.user_id,
+            source=source
         )
 
         # =========================
-        # 🔥 APPLY FIELDS
+        # 🔥 APPLY PAYMENT + STATUS
         # =========================
-        sale.source = data.source
-        sale.status = data.status
         sale.payment_method = data.payment_method
         sale.mpesa_reference = data.mpesa_reference
 
-        # =========================
-        # 🔥 PAYMENT LOGIC
-        # =========================
-        if sale.status == "paid":
-            sale.amount_paid = data.amount_paid or data.total_amount
-            sale.balance = max(sale.total_amount - sale.amount_paid, 0)
-        else:
-            sale.amount_paid = 0
-            sale.balance = sale.total_amount
+        if source == "pos":
+            # POS is always immediate + paid
+            sale.status = "paid"
+            sale.amount_paid = sale.total_amount
+            sale.balance = 0
+
+        elif source == "ecommerce":
+            # eCommerce flexible flow
+            sale.status = data.status or "pending"
+
+            if sale.status == "paid":
+                sale.amount_paid = data.amount_paid or sale.total_amount
+                sale.balance = max(sale.total_amount - sale.amount_paid, 0)
+            else:
+                sale.amount_paid = 0
+                sale.balance = sale.total_amount
 
         db.commit()
         db.refresh(sale)
 
         # =========================
-        # 🔥 LEDGER ENTRY (SAFE)
+        # 🔥 LEDGER ENTRY
         # =========================
         try:
             sale.record_ledger_entries(db)
@@ -136,11 +147,7 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
 
     except Exception as e:
         traceback.print_exc()
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)   # 🔥 SHOW REAL ERROR NOW
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =========================
