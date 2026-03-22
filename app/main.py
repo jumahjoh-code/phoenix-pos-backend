@@ -71,11 +71,16 @@ async def validation_exception_handler(request, exc):
     )
 
 # =========================
-# CORS
+# ✅ CORS (FIXED PROPERLY)
 # =========================
+origins = [
+    "http://localhost:3000",
+    "https://phoenix-pos-frontend.onrender.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ Restrict in production
+    allow_origins=origins,   # ❌ DO NOT USE "*"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
