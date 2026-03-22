@@ -20,7 +20,7 @@ def create_sale(db, items, total, amount_paid, user_id=None):
             total_amount=0,  # 🔥 recalculated
             amount_paid=amount_paid,
             balance=0,
-            status="completed",
+            status="pending",   # ✅ FIXED (was "completed")
             user_id=user_id
         )
 
@@ -71,7 +71,7 @@ def create_sale(db, items, total, amount_paid, user_id=None):
                 sale_id=sale.id,
                 product_id=product.id,
                 quantity=quantity,
-                price=unit_price,
+                price=unit_price,   # ✅ maps unit_price → DB price
                 cost_price=cost_price
             )
 
