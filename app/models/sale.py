@@ -23,10 +23,10 @@ class Sale(Base):
     payment_method = Column(String, default="cash")
     mpesa_reference = Column(String, nullable=True)
 
-    # 🔥 NEW (MULTI-CHANNEL SUPPORT)
+    # MULTI-CHANNEL SUPPORT
     source = Column(String, default="pos")  # pos | ecommerce
 
-    # 🔥 UPDATED STATUS (IMPORTANT)
+    # STATUS
     status = Column(String, default="paid")  # pending | paid | cancelled
 
     sale_type = Column(String, default="retail")
@@ -35,36 +35,28 @@ class Sale(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # =========================
     # RELATIONSHIPS
-    # =========================
     items = relationship("SaleItem", backref="sale", cascade="all, delete-orphan")
     user = relationship("User")
 
     # =========================
-    # 🔥 HELPER: PROFIT
+    # PROFIT
     # =========================
     @property
     def profit(self):
         return (self.total_amount or 0) - (self.cost_total or 0)
 
     # =========================
-    # 🔥 PAYMENT CHECK
+    # PAYMENT CHECK
     # =========================
     def is_fully_paid(self):
         return (self.amount_paid or 0) >= (self.total_amount or 0)
 
     # =========================
-    # 🔥 LEDGER INTEGRATION (SAFE)
+    # LEDGER RECORDING
     # =========================
     def record_ledger_entries(self, db: Session):
-        """
-        Record ledger ONLY if:
-        - Sale is marked as paid
-        - AND money actually received
-        """
 
-        # ❌ Do NOT record if not paid
         if self.status != "paid":
             return
 
@@ -73,7 +65,7 @@ class Sale(Base):
 
         reference = self.receipt_number or f"sale_{self.id}"
 
-        # 🔥 CASH
+        # CASH
         if self.payment_method == "cash":
             db.add(Ledger(
                 type="sale",
@@ -84,7 +76,7 @@ class Sale(Base):
                 created_at=self.created_at or func.now()
             ))
 
-        # 🔥 M-PESA
+        # M-PESA
         elif self.payment_method == "mpesa":
             db.add(Ledger(
                 type="sale",
@@ -95,9 +87,8 @@ class Sale(Base):
                 created_at=self.created_at or func.now()
             ))
 
-        # 🔥 MIXED (IMPROVED — NOT HARD-CODED 50/50)
+        # MIXED PAYMENT (dynamic split)
         elif self.payment_method == "mixed":
-            # 🔥 Better approach: split based on known values (fallback to 50/50)
             cash_part = self.amount_paid * 0.5
             mpesa_part = self.amount_paid * 0.5
 
@@ -121,14 +112,9 @@ class Sale(Base):
             ])
 
     # =========================
-    # 🔥 MARK AS PAID (CRITICAL)
+    # MARK AS PAID
     # =========================
     def mark_as_paid(self, db: Session, amount: float, method: str, mpesa_ref: str = None):
-        """
-        Use this for:
-        - M-Pesa callback
-        - E-commerce payment confirmation
-        """
 
         self.amount_paid = amount
         self.balance = max((self.total_amount or 0) - amount, 0)
@@ -140,13 +126,12 @@ class Sale(Base):
 
         db.commit()
 
-        # 🔥 NOW record ledger
         self.record_ledger_entries(db)
 
         db.commit()
 
     # =========================
-    # 🔥 RECEIPT FORMAT
+    # RECEIPT FORMAT
     # =========================
     def to_receipt_dict(self):
         return {

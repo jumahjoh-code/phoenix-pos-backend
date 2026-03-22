@@ -1,221 +1,312 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-import logging
-from datetime import datetime, date
+import { useEffect, useState, useCallback } from "react";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip,
+  CartesianGrid, ResponsiveContainer
+} from "recharts";
+import { Search, Sun, Moon, DollarSign, Package, TrendingUp, ShoppingCart } from "lucide-react";
 
-from app.core.database import get_db
-from app.services.payment_service import (
-    create_payment,
-    attach_checkout_request_id,
-    mark_payment_success,
-    mark_payment_failed
-)
-from app.services.mpesa import stk_push
-from app.schemas.payment import STKPushRequest
+// DESIGN SYSTEM
+import colors from "../design/colors";
+import spacing from "../design/spacing";
+import Card from "../ui/components/Card";
+import KPICard from "../ui/components/KPICard";
+import { API } from "../config";
 
-from app.models.sale import Sale
-from app.models.ledger import Ledger
-from app.models.payment import Payment
+export default function Dashboard() {
 
-router = APIRouter(prefix="/mpesa", tags=["M-Pesa"])
+  const [darkMode, setDarkMode] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ range: "today" });
 
-logger = logging.getLogger(__name__)
+  const [summary, setSummary] = useState(null);
+  const [salesData, setSalesData] = useState([]);
+  const [topProducts, setTopProducts] = useState([]);
+  const [worstProducts, setWorstProducts] = useState([]);
+  const [cashiers, setCashiers] = useState([]);
+  const [inventoryValue, setInventoryValue] = useState(0);
+  const [ai, setAI] = useState(null);
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-# =========================
-# 🚀 STK PUSH
-# =========================
-@router.post("/stk-push")
-def initiate_stk_push(
-    payload: STKPushRequest,
-    db: Session = Depends(get_db)
-):
-    try:
-        logger.info(f"STK REQUEST: {payload.dict()}")
+  const formatKES = (v) =>
+    "KES " + Number(v || 0).toLocaleString();
 
-        # 🔥 CREATE PAYMENT RECORD
-        payment = create_payment(
-            db,
-            payload.sale_id,
-            payload.amount,
-            "mpesa"
-        )
+  const theme = darkMode
+    ? {
+        bg: "#111827",
+        card: "#1F2937",
+        text: "#F9FAFB",
+        subtext: "#9CA3AF"
+      }
+    : {
+        bg: colors.background,
+        card: colors.surface,
+        text: colors.text,
+        subtext: colors.subtext
+      };
 
-        # 🔥 SEND STK PUSH
-        stk_response = stk_push(
-            payload.phone,
-            payload.amount,
-            payload.sale_id
-        )
-
-        logger.info(f"STK RESPONSE: {stk_response}")
-
-        if "error" in stk_response:
-            return {
-                "success": False,
-                "message": "STK push failed",
-                "details": stk_response.get("details")
-            }
-
-        checkout_id = stk_response.get("CheckoutRequestID")
-
-        if not checkout_id:
-            return {
-                "success": False,
-                "message": "No CheckoutRequestID returned",
-                "response": stk_response
-            }
-
-        # 🔥 LINK PAYMENT → CHECKOUT ID
-        attach_checkout_request_id(db, payment.id, checkout_id)
-
-        return {
-            "success": True,
-            "message": "STK push sent",
-            "checkout_request_id": checkout_id,
-            "customer_message": stk_response.get("CustomerMessage")
-        }
-
-    except Exception as e:
-        logger.error(f"STK ERROR: {str(e)}")
-
-        return {
-            "success": False,
-            "message": "STK push error",
-            "error": str(e)
-        }
-
-
-# =========================
-# 📲 CALLBACK (CORE LOGIC)
-# =========================
-@router.post("/callback")
-async def mpesa_callback(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        logger.info(f"M-Pesa Callback: {data}")
-
-        stk_callback = data.get("Body", {}).get("stkCallback", {})
-
-        result_code = stk_callback.get("ResultCode")
-        checkout_request_id = stk_callback.get("CheckoutRequestID")
-
-        if not checkout_request_id:
-            return {"ResultCode": 0, "ResultDesc": "Accepted"}
-
-        # =========================
-        # ❌ FAILED PAYMENT
-        # =========================
-        if result_code != 0:
-            mark_payment_failed(db, checkout_request_id)
-            return {"ResultCode": 0, "ResultDesc": "Accepted"}
-
-        # =========================
-        # ✅ EXTRACT METADATA
-        # =========================
-        metadata_items = stk_callback.get("CallbackMetadata", {}).get("Item", [])
-        metadata = {item["Name"]: item.get("Value") for item in metadata_items}
-
-        mpesa_code = metadata.get("MpesaReceiptNumber")
-        amount = float(metadata.get("Amount", 0))
-
-        # =========================
-        # 🔥 DUPLICATE PROTECTION
-        # =========================
-        existing_ledger = db.query(Ledger).filter(
-            Ledger.reference == mpesa_code
-        ).first()
-
-        if existing_ledger:
-            logger.warning(f"Duplicate callback ignored: {mpesa_code}")
-            return {"ResultCode": 0, "ResultDesc": "Already processed"}
-
-        # =========================
-        # 🔥 MARK PAYMENT SUCCESS
-        # =========================
-        payment = mark_payment_success(db, checkout_request_id, mpesa_code)
-
-        if not payment:
-            logger.error("Payment not found")
-            return {"ResultCode": 0, "ResultDesc": "Payment not found"}
-
-        # =========================
-        # 🔥 UPDATE SALE
-        # =========================
-        sale = db.query(Sale).filter(Sale.id == payment.sale_id).first()
-
-        if sale:
-            sale.amount_paid = (sale.amount_paid or 0) + amount
-            sale.mpesa_reference = mpesa_code
-
-            if sale.amount_paid >= sale.total_amount:
-                sale.status = "completed"
-            else:
-                sale.status = "partial"
-
-        # =========================
-        # 🔥 CREATE LEDGER ENTRY
-        # =========================
-        ledger_entry = Ledger(
-            type="sale",
-            amount=amount,
-            method="mpesa_business",
-            reference=mpesa_code,
-            description=f"M-Pesa STK sale #{sale.id if sale else 'N/A'}",
-            created_at=datetime.utcnow(),
-        )
-
-        db.add(ledger_entry)
-
-        # =========================
-        # 💾 SAVE
-        # =========================
-        db.commit()
-
-        logger.info(f"✅ Payment processed: {mpesa_code}")
-
-        return {"ResultCode": 0, "ResultDesc": "Accepted"}
-
-    except Exception as e:
-        logger.error(f"Callback Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Callback failed")
-
-
-# =========================
-# 📊 RECONCILIATION (TODAY)
-# =========================
-@router.get("/reconciliation/today")
-def mpesa_reconciliation_today(db: Session = Depends(get_db)):
-
-    today = date.today()
-
-    # Ledger entries
-    ledger_entries = db.query(Ledger).filter(
-        Ledger.method == "mpesa_business",
-        func.date(Ledger.created_at) == today
-    ).all()
-
-    ledger_total = sum(e.amount for e in ledger_entries)
-
-    # Payments
-    payments = db.query(Payment).filter(
-        Payment.method == "mpesa",
-        Payment.status == "completed",
-        func.date(Payment.created_at) == today
-    ).all()
-
-    payment_total = sum(p.amount for p in payments)
-
-    ledger_refs = set(e.reference for e in ledger_entries if e.reference)
-    payment_refs = set(p.mpesa_code for p in payments if p.mpesa_code)
-
-    return {
-        "ledger_total": ledger_total,
-        "payment_total": payment_total,
-        "difference": payment_total - ledger_total,
-        "matched_transactions": len(ledger_refs & payment_refs),
-        "missing_in_ledger": list(payment_refs - ledger_refs),
-        "missing_in_payments": list(ledger_refs - payment_refs),
-        "status": "OK" if payment_total == ledger_total else "MISMATCH"
+  // SAFE FETCH
+  const fetchSafe = async (url) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed: ${url}`);
+      return await res.json();
+    } catch (err) {
+      console.error(err.message);
+      return null;
     }
+  };
+
+  // STABLE FETCH FUNCTION
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [
+        summary,
+        sales,
+        top,
+        worst,
+        cashier,
+        inventory,
+        aiData
+      ] = await Promise.all([
+        fetchSafe(`${API}/sales/summary/today?range=${filters.range}`),
+        fetchSafe(`${API}/sales/reports/daily?range=${filters.range}`),
+        fetchSafe(`${API}/sales/reports/top-products`),
+        fetchSafe(`${API}/sales/reports/worst-products`),
+        fetchSafe(`${API}/sales/cashier-performance`),
+        fetchSafe(`${API}/api/inventory-value`),
+        fetchSafe(`${API}/ai/dashboard`)
+      ]);
+
+      setSummary(summary);
+      setSalesData(sales || []);
+      setTopProducts(top || []);
+      setWorstProducts(worst || []);
+      setCashiers(cashier || []);
+      setInventoryValue(inventory?.total_inventory_value || 0);
+      setAI(aiData);
+
+      setLastUpdated(new Date());
+
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Dashboard failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.range]);
+
+  // CLEAN EFFECT (NO DUPLICATES)
+  useEffect(() => {
+    fetchData();
+
+    const interval = setInterval(fetchData, 60000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  if (loading) {
+    return <div style={{ padding: spacing.lg }}>Loading dashboard...</div>;
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: spacing.lg, color: colors.danger }}>
+        {error}
+      </div>
+    );
+  }
+
+  const filteredCashiers = (cashiers || []).filter(c =>
+    c?.username?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div style={{
+      background: theme.bg,
+      color: theme.text,
+      minHeight: "100vh",
+      padding: spacing.lg
+    }}>
+
+      {/* TOP BAR */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: spacing.lg
+      }}>
+
+        <h2 style={{ color: colors.primary }}>Dashboard</h2>
+
+        <div style={{ display: "flex", gap: spacing.md, alignItems: "center" }}>
+
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            background: theme.card,
+            padding: "6px 10px",
+            borderRadius: 8
+          }}>
+            <Search size={14} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search cashier..."
+              style={{
+                border: "none",
+                outline: "none",
+                marginLeft: 5,
+                background: "transparent",
+                color: theme.text
+              }}
+            />
+          </div>
+
+          <select
+            value={filters.range}
+            onChange={(e) => setFilters({ range: e.target.value })}
+          >
+            <option value="today">Today</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+          </select>
+
+          <div onClick={() => setDarkMode(!darkMode)} style={{ cursor: "pointer" }}>
+            {darkMode ? <Sun /> : <Moon />}
+          </div>
+
+          <small style={{ color: theme.subtext }}>
+            Updated: {lastUpdated?.toLocaleTimeString()}
+          </small>
+        </div>
+
+      </div>
+
+      {/* KPI */}
+      <div style={grid}>
+        <KPICard title="Sales" value={formatKES(summary?.total_sales)} icon={<DollarSign />} />
+        <KPICard title="Transactions" value={summary?.transactions} icon={<ShoppingCart />} />
+        <KPICard title="Profit" value={formatKES(summary?.profit)} icon={<TrendingUp />} />
+        <KPICard title="Inventory" value={formatKES(inventoryValue)} icon={<Package />} />
+      </div>
+
+      {/* AI ALERT */}
+      {ai?.alerts?.length > 0 && (
+        <Card>
+          <h3>AI Alerts</h3>
+          {ai.alerts.map((a, i) => (
+            <div key={i} style={{ marginTop: spacing.sm }}>
+              ⚠️ {a}
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* CHART */}
+      <Card>
+        <h3>Sales vs Profit</h3>
+
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={salesData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="total_sales" stroke={colors.primary} />
+            <Line type="monotone" dataKey="profit" stroke="#22C55E" />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* PRODUCTS */}
+      <Card>
+        <h3>Top Products</h3>
+        {topProducts.length === 0 ? (
+          <p style={{ color: theme.subtext }}>No data</p>
+        ) : (
+          topProducts.map((p, i) => (
+            <Row key={i} name={p.name} value={formatKES(p.total_sales)} />
+          ))
+        )}
+      </Card>
+
+      <Card>
+        <h3>Worst Products</h3>
+        {worstProducts.length === 0 ? (
+          <p style={{ color: theme.subtext }}>No data</p>
+        ) : (
+          worstProducts.map((p, i) => (
+            <Row key={i} name={p.name} value={formatKES(p.total_sales)} danger />
+          ))
+        )}
+      </Card>
+
+      {/* CASHIERS */}
+      <Card>
+        <h3>Cashiers</h3>
+
+        {filteredCashiers.length === 0 ? (
+          <p style={{ color: theme.subtext }}>No cashier data</p>
+        ) : (
+          <table style={{ width: "100%" }}>
+            <thead>
+              <tr style={{ color: theme.subtext }}>
+                <th>Name</th>
+                <th>Transactions</th>
+                <th>Sales</th>
+                <th>Profit</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filteredCashiers.map((c, i) => (
+                <tr
+                  key={i}
+                  style={{
+                    borderBottom: `1px solid ${colors.border}`,
+                    cursor: "pointer"
+                  }}
+                >
+                  <td>{c.username}</td>
+                  <td>{c.transactions}</td>
+                  <td style={{ color: colors.primary }}>
+                    {formatKES(c.total_sales)}
+                  </td>
+                  <td>{formatKES(c.profit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+    </div>
+  );
+}
+
+function Row({ name, value, danger }) {
+  return (
+    <div style={{
+      display: "flex",
+      justifyContent: "space-between",
+      marginTop: 8
+    }}>
+      <span>{name}</span>
+      <span style={{ color: danger ? colors.danger : colors.primary }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+const grid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))",
+  gap: spacing.lg,
+  marginBottom: spacing.lg
+};
