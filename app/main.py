@@ -52,7 +52,6 @@ app = FastAPI(
     version="2.0.0"
 )
 
-
 # =========================
 # 🔥 GLOBAL VALIDATION ERROR HANDLER
 # =========================
@@ -71,7 +70,6 @@ async def validation_exception_handler(request, exc):
         },
     )
 
-
 # =========================
 # CORS
 # =========================
@@ -83,16 +81,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # =========================
 # STARTUP
 # =========================
 @app.on_event("startup")
 def startup():
     print("🚀 Starting Phoenix POS...")
+
+    # Create tables
     Base.metadata.create_all(bind=engine)
     print("✅ Database ready (including AI tables)")
 
+    # 🔥 AUTO FIX: Add missing column if not exists
+    from sqlalchemy import text
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE sales ADD COLUMN offline_id TEXT"))
+            conn.commit()
+            print("✅ offline_id column ensured")
+    except Exception as e:
+        print("ℹ️ offline_id may already exist:", e)
 
 # =========================
 # ROUTERS
@@ -113,7 +122,6 @@ app.include_router(mpesa_router)
 
 app.include_router(ledger_router)
 app.include_router(ai_router)
-
 
 # =========================
 # HEALTH CHECK / ROOT
