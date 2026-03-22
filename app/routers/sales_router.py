@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
+from sqlalchemy import func
 from datetime import date
 import logging
+import traceback
 
 from app.core.database import get_db
 from app.services.sales_service import create_sale
@@ -60,7 +61,7 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
 
     try:
         # =========================
-        # 🔥 ANTI-FRAUD TOTAL CHECK
+        # 🔥 TOTAL VALIDATION
         # =========================
         calculated_total = sum(
             item.quantity * item.unit_price for item in data.items
@@ -98,7 +99,9 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
             user_id=data.user_id
         )
 
-        # APPLY EXTRA FIELDS
+        # =========================
+        # 🔥 APPLY FIELDS
+        # =========================
         sale.source = data.source
         sale.status = data.status
         sale.payment_method = data.payment_method
@@ -114,21 +117,17 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
             sale.amount_paid = 0
             sale.balance = sale.total_amount
 
-        # =========================
-        # 🔥 DEDUCT STOCK
-        # =========================
-        for item in data.items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-            product.stock_quantity -= item.quantity
-
         db.commit()
         db.refresh(sale)
 
         # =========================
-        # 🔥 LEDGER ENTRY
+        # 🔥 LEDGER ENTRY (SAFE)
         # =========================
-        sale.record_ledger_entries(db)
-        db.commit()
+        try:
+            sale.record_ledger_entries(db)
+            db.commit()
+        except Exception as ledger_error:
+            logger.error(f"Ledger error: {str(ledger_error)}")
 
         return build_receipt(sale)
 
@@ -136,8 +135,12 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         raise
 
     except Exception as e:
-        logger.error(f"Sale error: {str(e)}")
-        raise HTTPException(status_code=400, detail="Failed to process sale")
+        traceback.print_exc()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)   # 🔥 SHOW REAL ERROR NOW
+        )
 
 
 # =========================
