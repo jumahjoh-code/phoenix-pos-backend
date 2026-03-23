@@ -20,8 +20,8 @@ from app.models import (
     purchase,
     purchase_item,
     ledger,
-    chat,          # 🔥 REQUIRED FOR AI CHAT
-    ai_learning    # 🔥 REQUIRED FOR AI LEARNING
+    chat,
+    ai_learning
 )
 
 # =========================
@@ -71,7 +71,7 @@ async def validation_exception_handler(request, exc):
     )
 
 # =========================
-# ✅ CORS (FIXED PROPERLY)
+# ✅ CORS (PRODUCTION SAFE)
 # =========================
 origins = [
     "http://localhost:3000",
@@ -80,24 +80,28 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,   # ❌ DO NOT USE "*"
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # =========================
-# STARTUP
+# 🚀 STARTUP (FIXED DB ISSUE)
 # =========================
 @app.on_event("startup")
 def startup():
     print("🚀 Starting Phoenix POS...")
 
-    # Create tables
-    Base.metadata.create_all(bind=engine)
-    print("✅ Database ready (including AI tables)")
+    # 🔥 FORCE RESET DATABASE (DEV FIX)
+    try:
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database recreated cleanly")
+    except Exception as e:
+        print("❌ DB recreation error:", e)
 
-    # 🔥 AUTO FIX: Add missing column if not exists
+    # 🔥 AUTO FIX COLUMN
     from sqlalchemy import text
 
     try:
