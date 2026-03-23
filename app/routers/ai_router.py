@@ -12,9 +12,6 @@ from app.models.chat import ChatMessage
 from app.models.decision_log import DecisionLog
 
 from app.services.ai_service import (
-    analyze_system,
-    business_advice,
-    ai_chat_brain,
     calculate_growth,
     generate_intelligent_insights,
     detect_learning_patterns,
@@ -22,8 +19,8 @@ from app.services.ai_service import (
     forecast_risks,
     analyze_product_demand,
     analyze_pricing_intelligence,
-    generate_autopilot_summary,
-    generate_decisions
+    generate_decisions,
+    ai_chat_brain
 )
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -73,33 +70,26 @@ def ai_dashboard(db: Session = Depends(get_db)):
     profit_margin = (profit / total_sales * 100) if total_sales > 0 else 0
     growth = calculate_growth(float(total_sales), float(yesterday_sales))
 
-    # 🔥 FIXED STOCK LOGIC
+    # LOW STOCK
     low_stock_products = db.query(Inventory, Product)\
         .join(Product, Inventory.product_id == Product.id)\
         .filter(Inventory.quantity < 5).all()
 
     low_stock_names = [p.Product.name for p in low_stock_products]
 
-    # 🔮 Forecast
+    # AI MODULES
     prediction = predict_sales(db)
-
-    # ⚠️ Risks
     risks = forecast_risks(db)
-
-    # 📦 Products
     products = analyze_product_demand(db)
-
-    # 💰 Pricing
     pricing = analyze_pricing_intelligence(db)
 
-    # 🧠 Decisions
     decisions = generate_decisions({
         "profit_margin": profit_margin,
         "growth": growth,
         "low_stock": low_stock_names
     })
 
-    # 🧠 Health Score
+    # HEALTH SCORE
     score = 100
     if profit_margin < 10:
         score -= 40
@@ -143,7 +133,7 @@ def decision_action(payload: DecisionAction, db: Session = Depends(get_db)):
 
 
 # =========================
-# 🧠 AI CHAT
+# 🧠 AI CHAT (MAIN)
 # =========================
 @router.post("/chat")
 def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
@@ -168,7 +158,7 @@ def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     profit_margin = (profit / total_sales * 100) if total_sales > 0 else 0
     growth = calculate_growth(float(total_sales), float(yesterday_sales))
 
-    # 🔥 FIXED STOCK LOGIC
+    # LOW STOCK
     low_stock_products = db.query(Inventory, Product)\
         .join(Product, Inventory.product_id == Product.id)\
         .filter(Inventory.quantity < 5).all()
@@ -184,19 +174,19 @@ def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
         "low_stock": low_stock_names
     }
 
-    # SAVE USER
+    # SAVE USER MESSAGE
     db.add(ChatMessage(sender="user", message=prompt))
     db.commit()
 
     # QUICK RESPONSES
     if "sales" in prompt:
-        reply = f"📊 Sales today: {total_sales} from {transactions}"
+        reply = f"📊 Sales today: {total_sales} from {transactions} transactions"
 
     elif "profit" in prompt:
         reply = f"💰 Profit: {profit} ({profit_margin:.2f}%)"
 
     elif "stock" in prompt:
-        reply = f"⚠️ Low stock: {', '.join(low_stock_names)}" if low_stock_names else "✅ Stock OK"
+        reply = f"⚠️ Low stock: {', '.join(low_stock_names)}" if low_stock_names else "✅ Stock levels are good"
 
     else:
         insights = generate_intelligent_insights(context)
@@ -210,3 +200,21 @@ def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     db.commit()
 
     return {"reply": reply}
+
+
+# =========================
+# 🔥 FIX: FRONTEND COMPATIBILITY
+# =========================
+@router.post("/query")
+def ai_query(payload: dict, db: Session = Depends(get_db)):
+
+    prompt = payload.get("message") or payload.get("prompt")
+
+    if not prompt:
+        return {"response": "No message provided"}
+
+    response = ai_chat(ChatRequest(prompt=prompt), db)
+
+    return {
+        "response": response.get("reply")
+    }
