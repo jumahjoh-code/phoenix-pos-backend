@@ -94,7 +94,7 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         source = data.source or "pos"
 
         # =========================
-        # 🔥 CREATE SALE
+        # 🔥 CREATE SALE (RETURNS MODEL)
         # =========================
         sale = create_sale(
             db=db,
@@ -106,19 +106,17 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         )
 
         # =========================
-        # 🔥 APPLY PAYMENT + STATUS
+        # 🔥 APPLY PAYMENT DETAILS
         # =========================
         sale.payment_method = data.payment_method
         sale.mpesa_reference = data.mpesa_reference
 
         if source == "pos":
-            # POS is always immediate + paid
             sale.status = "paid"
             sale.amount_paid = sale.total_amount
             sale.balance = 0
 
         elif source == "ecommerce":
-            # eCommerce flexible flow
             sale.status = data.status or "pending"
 
             if sale.status == "paid":

@@ -58,7 +58,7 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
                     detail=f"{product.name} out of stock"
                 )
 
-            # 🔥 FIX: SUPPORT BOTH price + retail_price
+            # SUPPORT BOTH price + retail_price
             unit_price = float(
                 getattr(product, "price", None) or getattr(product, "retail_price", 0)
             )
@@ -113,16 +113,9 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
         db.refresh(sale)
 
         # =========================
-        # ✅ FINAL RESPONSE (FIXED)
+        # ✅ RETURN MODEL (CRITICAL FIX)
         # =========================
-        return {
-            "id": sale.id,
-            "total_amount": sale.total_amount,
-            "amount_paid": sale.amount_paid,
-            "balance": sale.balance,
-            "status": sale.status,
-            "source": sale.source
-        }
+        return sale
 
     except Exception as e:
         db.rollback()
