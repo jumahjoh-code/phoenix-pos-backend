@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # =========================
 def build_receipt(sale):
     return {
+        "id": sale.id,  # ✅ FIXED (frontend compatibility)
         "sale_id": sale.id,
         "receipt_number": sale.receipt_number,
         "source": sale.source,
@@ -94,7 +95,7 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         source = data.source or "pos"
 
         # =========================
-        # 🔥 CREATE SALE (RETURNS MODEL)
+        # 🔥 CREATE SALE
         # =========================
         sale = create_sale(
             db=db,
@@ -182,6 +183,7 @@ def list_sales(db: Session = Depends(get_db)):
 
     return [
         {
+            "id": sale.id,
             "sale_id": sale.id,
             "date": sale.created_at,
             "source": sale.source,
@@ -222,35 +224,6 @@ def today_summary(db: Session = Depends(get_db)):
         "profit": float(total_sales - total_cost),
         "cash_collected": float(cash_collected)
     }
-
-
-# =========================
-# 👨‍💼 CASHIER PERFORMANCE
-# =========================
-@router.get("/cashier-performance")
-def cashier_performance(db: Session = Depends(get_db)):
-
-    results = db.query(
-        Sale.user_id,
-        func.count(Sale.id),
-        func.coalesce(func.sum(Sale.total_amount), 0),
-        func.coalesce(func.sum(Sale.cost_total), 0)
-    ).group_by(Sale.user_id).all()
-
-    data = []
-
-    for user_id, transactions, total_sales, total_cost in results:
-        user = db.query(User).filter(User.id == user_id).first()
-
-        data.append({
-            "user_id": user_id,
-            "username": user.username if user else "Unknown",
-            "transactions": transactions,
-            "total_sales": float(total_sales),
-            "profit": float(total_sales - total_cost)
-        })
-
-    return data
 
 
 # =========================
