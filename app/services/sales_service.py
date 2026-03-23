@@ -14,7 +14,9 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
         total_amount = 0
         cost_total = 0
 
-        # 🔥 DETERMINE STATUS EARLY (IMPORTANT)
+        # =========================
+        # STATUS
+        # =========================
         is_paid = amount_paid >= total
         status = "paid" if is_paid else "pending"
 
@@ -34,7 +36,7 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
         db.flush()
 
         # =========================
-        # PROCESS ITEMS (NO STOCK YET)
+        # PROCESS ITEMS
         # =========================
         processed_items = []
 
@@ -56,8 +58,10 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
                     detail=f"{product.name} out of stock"
                 )
 
-            # 🔥 USE CORRECT FIELD
-            unit_price = float(getattr(product, "retail_price", 0))
+            # 🔥 FIX: SUPPORT BOTH price + retail_price
+            unit_price = float(
+                getattr(product, "price", None) or getattr(product, "retail_price", 0)
+            )
 
             if unit_price <= 0:
                 raise HTTPException(
@@ -82,11 +86,10 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
 
             db.add(sale_item)
 
-            # 🔥 STORE FOR LATER STOCK PROCESSING
             processed_items.append((product, quantity))
 
         # =========================
-        # APPLY STOCK (CENTRALIZED)
+        # APPLY STOCK
         # =========================
         for product, quantity in processed_items:
 
@@ -109,7 +112,17 @@ def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
         db.commit()
         db.refresh(sale)
 
-        return sale
+        # =========================
+        # ✅ FINAL RESPONSE (FIXED)
+        # =========================
+        return {
+            "id": sale.id,
+            "total_amount": sale.total_amount,
+            "amount_paid": sale.amount_paid,
+            "balance": sale.balance,
+            "status": sale.status,
+            "source": sale.source
+        }
 
     except Exception as e:
         db.rollback()
