@@ -238,7 +238,7 @@ def dashboard_daily(range: str = "today", db: Session = Depends(get_db)):
 
 
 # =========================
-# 📊 TOP PRODUCTS REPORT
+# 📊 TOP PRODUCTS
 # =========================
 @router.get("/reports/top-products")
 def top_products(db: Session = Depends(get_db)):
@@ -257,5 +257,56 @@ def top_products(db: Session = Depends(get_db)):
 
     return [
         {"name": r[0], "quantity": int(r[1])}
+        for r in results
+    ]
+
+
+# =========================
+# 📊 WORST PRODUCTS
+# =========================
+@router.get("/reports/worst-products")
+def worst_products(db: Session = Depends(get_db)):
+
+    results = (
+        db.query(
+            Product.name,
+            func.sum(SaleItem.quantity)
+        )
+        .join(SaleItem, Product.id == SaleItem.product_id)
+        .group_by(Product.name)
+        .order_by(func.sum(SaleItem.quantity).asc())
+        .limit(5)
+        .all()
+    )
+
+    return [
+        {"name": r[0], "quantity": int(r[1])}
+        for r in results
+    ]
+
+
+# =========================
+# 📊 CASHIER PERFORMANCE
+# =========================
+@router.get("/cashier-performance")
+def cashier_performance(db: Session = Depends(get_db)):
+
+    results = (
+        db.query(
+            User.username,
+            func.count(Sale.id),
+            func.coalesce(func.sum(Sale.total_amount), 0)
+        )
+        .join(Sale, Sale.user_id == User.id)
+        .group_by(User.username)
+        .all()
+    )
+
+    return [
+        {
+            "cashier": r[0],
+            "transactions": r[1],
+            "total_sales": float(r[2])
+        }
         for r in results
     ]
