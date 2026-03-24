@@ -3,15 +3,23 @@ import os
 import json
 from sqlalchemy import func
 
-# ✅ SAFE INITIALIZATION (NO CRASH)
-api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key) if api_key else None
+
+# =========================
+# 🔑 SAFE CLIENT (DYNAMIC)
+# =========================
+def get_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    return OpenAI(api_key=api_key)
 
 
 # =========================
 # 🔍 SYSTEM ANALYSIS
 # =========================
 def analyze_system(summary):
+
+    client = get_client()
     if not client:
         return "AI service not configured"
 
@@ -36,6 +44,8 @@ def analyze_system(summary):
 # 💡 BUSINESS ADVICE
 # =========================
 def business_advice(context):
+
+    client = get_client()
     if not client:
         return "AI service not configured"
 
@@ -60,6 +70,8 @@ def business_advice(context):
 # 🧠 MAIN AI CHAT BRAIN
 # =========================
 def ai_chat_brain(prompt, context):
+
+    client = get_client()
     if not client:
         return "AI service not configured"
 
@@ -313,6 +325,7 @@ def generate_decisions(context):
 # =========================
 def generate_autopilot_summary(context):
 
+    client = get_client()
     if not client:
         return "AI service not configured"
 
