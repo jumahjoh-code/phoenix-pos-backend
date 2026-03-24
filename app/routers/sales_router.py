@@ -8,6 +8,7 @@ import traceback
 from app.core.database import get_db
 from app.services.sales_service import create_sale
 from app.models.sale import Sale
+from app.models.sale_item import SaleItem
 from app.models.user import User
 from app.models.product import Product
 from app.schemas.sale import SaleCreate, PaymentConfirm
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # =========================
 def build_receipt(sale):
     return {
-        "id": sale.id,  # ✅ FIXED (frontend compatibility)
+        "id": sale.id,
         "sale_id": sale.id,
         "receipt_number": sale.receipt_number,
         "source": sale.source,
@@ -61,9 +62,6 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="No items provided")
 
     try:
-        # =========================
-        # 🔥 TOTAL VALIDATION
-        # =========================
         calculated_total = sum(
             item.quantity * item.unit_price for item in data.items
         )
@@ -71,9 +69,6 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         if abs(calculated_total - data.total_amount) > 1:
             raise HTTPException(status_code=400, detail="Total mismatch detected")
 
-        # =========================
-        # 🔥 STOCK VALIDATION
-        # =========================
         for item in data.items:
             product = db.query(Product).filter(Product.id == item.product_id).first()
 
@@ -89,14 +84,8 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
                     detail=f"Not enough stock for {product.name}"
                 )
 
-        # =========================
-        # 🔥 DETERMINE SOURCE
-        # =========================
         source = data.source or "pos"
 
-        # =========================
-        # 🔥 CREATE SALE
-        # =========================
         sale = create_sale(
             db=db,
             items=[item.dict() for item in data.items],
@@ -106,9 +95,6 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
             source=source
         )
 
-        # =========================
-        # 🔥 APPLY PAYMENT DETAILS
-        # =========================
         sale.payment_method = data.payment_method
         sale.mpesa_reference = data.mpesa_reference
 
@@ -130,9 +116,6 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(sale)
 
-        # =========================
-        # 🔥 LEDGER ENTRY
-        # =========================
         try:
             sale.record_ledger_entries(db)
             db.commit()
@@ -227,14 +210,52 @@ def today_summary(db: Session = Depends(get_db)):
 
 
 # =========================
-# 🔍 GET SINGLE SALE
+# 📊 DASHBOARD DAILY REPORT
 # =========================
-@router.get("/{sale_id}")
-def get_sale(sale_id: int, db: Session = Depends(get_db)):
+@router.get("/reports/daily")
+def dashboard_daily(range: str = "today", db: Session = Depends(get_db)):
 
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    today = date.today()
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
+    result = db.query(
+        func.count(Sale.id),
+        func.coalesce(func.sum(Sale.total_amount), 0),
+        func.coalesce(func.sum(Sale.cost_total), 0),
+        func.coalesce(func.sum(Sale.amount_paid), 0)
+    ).filter(
+        func.date(Sale.created_at) == today
+    ).first()
 
-    return build_receipt(sale)
+    transactions, total_sales, total_cost, cash_collected = result
+
+    return {
+        "transactions": transactions,
+        "total_sales": float(total_sales),
+        "total_cost": float(total_cost),
+        "profit": float(total_sales - total_cost),
+        "cash_collected": float(cash_collected)
+    }
+
+
+# =========================
+# 📊 TOP PRODUCTS REPORT
+# =========================
+@router.get("/reports/top-products")
+def top_products(db: Session = Depends(get_db)):
+
+    results = (
+        db.query(
+            Product.name,
+            func.sum(SaleItem.quantity)
+        )
+        .join(SaleItem, Product.id == SaleItem.product_id)
+        .group_by(Product.name)
+        .order_by(func.sum(SaleItem.quantity).desc())
+        .limit(5)
+        .all()
+    )
+
+    return [
+        {"name": r[0], "quantity": int(r[1])}
+        for r in results
+    ]
