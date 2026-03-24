@@ -5,7 +5,7 @@ from sqlalchemy import func
 
 
 # =========================
-# 🔑 SAFE CLIENT (WITH DEBUG)
+# 🔑 SAFE CLIENT (DEBUG)
 # =========================
 def get_client():
     api_key = os.getenv("OPENAI_API_KEY")
@@ -36,7 +36,7 @@ def get_client():
 def analyze_system(summary):
     client = get_client()
     if not client:
-        return "❌ AI not configured (check API key)"
+        return "❌ AI not configured"
 
     try:
         summary_text = json.dumps(summary, indent=2)
@@ -108,7 +108,7 @@ You are Phoenix AI (business advisor).
 
 - Analyze business
 - Detect problems
-- Suggest clear actions
+- Suggest actions
 - Be practical
 
 Focus:
@@ -185,7 +185,33 @@ def generate_intelligent_insights(data):
 
 
 # =========================
-# 🔮 PREDICTION
+# 🧠 LEARNING PATTERNS
+# =========================
+def detect_learning_patterns(db):
+    from app.models.ai_learning import AILearning
+
+    records = db.query(AILearning).order_by(AILearning.date.desc()).limit(5).all()
+
+    insights = []
+
+    if len(records) >= 3:
+        if all(r.profit_margin < 15 for r in records[:3]):
+            insights.append({
+                "level": "critical",
+                "message": "Repeated low profit margin trend"
+            })
+
+        if all(r.growth < 0 for r in records[:3]):
+            insights.append({
+                "level": "warning",
+                "message": "Consistent sales decline trend"
+            })
+
+    return insights
+
+
+# =========================
+# 🔮 SALES PREDICTION
 # =========================
 def predict_sales(db):
     from app.models.ai_learning import AILearning
@@ -200,7 +226,7 @@ def predict_sales(db):
 
 
 # =========================
-# ⚠️ RISKS
+# ⚠️ RISK FORECAST
 # =========================
 def forecast_risks(db):
     from app.models.ai_learning import AILearning
@@ -217,6 +243,63 @@ def forecast_risks(db):
             risks.append("Profit margin collapse risk")
 
     return risks
+
+
+# =========================
+# 📦 PRODUCT DEMAND
+# =========================
+def analyze_product_demand(db):
+    from app.models.sale_item import SaleItem
+    from app.models.product import Product
+
+    results = db.query(
+        Product.name,
+        func.sum(SaleItem.quantity)
+    ).join(SaleItem).group_by(Product.name).all()
+
+    formatted = []
+
+    for r in results:
+        try:
+            formatted.append({
+                "product": r[0],
+                "quantity": int(r[1] or 0)
+            })
+        except Exception:
+            continue
+
+    return formatted[:5]
+
+
+# =========================
+# 💰 PRICING INTELLIGENCE
+# =========================
+def analyze_pricing_intelligence(db):
+    from app.models.product import Product
+
+    products = db.query(Product).all()
+
+    insights = []
+
+    for p in products:
+        price = getattr(p, "selling_price", None) or getattr(p, "price", None)
+        cost = getattr(p, "cost_price", None)
+
+        if not price or not cost:
+            continue
+
+        try:
+            margin = ((price - cost) / price) * 100
+        except Exception:
+            continue
+
+        if margin < 10:
+            insights.append(f"{p.name}: low margin")
+
+        elif margin > 40:
+            insights.append(f"{p.name}: high margin opportunity")
+
+    return insights[:5]
 
 
 # =========================
