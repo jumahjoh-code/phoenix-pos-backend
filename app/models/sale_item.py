@@ -26,6 +26,8 @@ class SaleItem(Base):
     # =========================
     @property
     def total(self):
+        if self.line_total:
+            return self.line_total
         return (self.quantity or 0) * (self.price or 0)
 
     @property
@@ -42,4 +44,4 @@ class SaleItem(Base):
         if self.price <= 0:
             raise ValueError("Price must be greater than zero")
 
-        self.line_total = self.total
+        self.line_total = float((self.quantity or 0) * (self.price or 0))

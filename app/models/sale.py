@@ -126,22 +126,21 @@ class Sale(Base):
     # =========================
     # MARK AS PAID (CRITICAL FIX)
     # =========================
-    def mark_as_paid(self, db: Session, amount: float, method: str, mpesa_ref: str = None):
+    def mark_as_paid(self, amount: float, method: str, mpesa_ref: str = None):
+        if self.status == "paid":
+            return
 
-        self.amount_paid = amount
-        self.balance = max((self.total_amount or 0) - amount, 0)
+        if amount < (self.total_amount or 0):
+            raise ValueError("Payment amount is less than sale total")
 
+        if method == "mpesa" and not mpesa_ref:
+            raise ValueError("M-Pesa reference required")
+
+        self.amount_paid = float(self.total_amount or 0)
+        self.balance = 0
         self.payment_method = method
         self.mpesa_reference = mpesa_ref
-
         self.status = "paid"
-
-        db.commit()
-
-        # 🔥 Ledger only AFTER status is paid
-        self.record_ledger_entries(db)
-
-        db.commit()
 
     # =========================
     # RECEIPT FORMAT

@@ -6,7 +6,7 @@ import logging
 import traceback
 
 from app.core.database import get_db
-from app.services.sales_service import create_sale
+from app.services.sales_service import create_sale, confirm_sale_payment
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.user import User
@@ -57,70 +57,12 @@ def build_receipt(sale):
 # =========================
 @router.post("/")
 def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
-
-    if not data.items:
-        raise HTTPException(status_code=400, detail="No items provided")
-
     try:
-        calculated_total = sum(
-            item.quantity * item.unit_price for item in data.items
-        )
-
-        if abs(calculated_total - data.total_amount) > 1:
-            raise HTTPException(status_code=400, detail="Total mismatch detected")
-
-        for item in data.items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-
-            if not product:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Product {item.product_id} not found"
-                )
-
-            if product.stock_quantity < item.quantity:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Not enough stock for {product.name}"
-                )
-
-        source = data.source or "pos"
-
-        sale = create_sale(
-            db=db,
-            items=[item.dict() for item in data.items],
-            total=data.total_amount,
-            amount_paid=data.amount_paid or 0,
-            user_id=data.user_id,
-            source=source
-        )
-
-        sale.payment_method = data.payment_method
-        sale.mpesa_reference = data.mpesa_reference
-
-        if source == "pos":
-            sale.status = "paid"
-            sale.amount_paid = sale.total_amount
-            sale.balance = 0
-
-        elif source == "ecommerce":
-            sale.status = data.status or "pending"
-
-            if sale.status == "paid":
-                sale.amount_paid = data.amount_paid or sale.total_amount
-                sale.balance = max(sale.total_amount - sale.amount_paid, 0)
-            else:
-                sale.amount_paid = 0
-                sale.balance = sale.total_amount
-
-        db.commit()
-        db.refresh(sale)
-
-        try:
+        with db.begin():
+            sale = create_sale(db=db, payload=data)
             sale.record_ledger_entries(db)
-            db.commit()
-        except Exception as ledger_error:
-            logger.error(f"Ledger error: {str(ledger_error)}")
+
+        db.refresh(sale)
 
         return build_receipt(sale)
 
@@ -128,6 +70,7 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
         raise
 
     except Exception as e:
+        logger.exception("Failed to record sale")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -137,23 +80,19 @@ def record_sale(data: SaleCreate, db: Session = Depends(get_db)):
 # =========================
 @router.post("/{sale_id}/confirm-payment")
 def confirm_payment(sale_id: int, payload: PaymentConfirm, db: Session = Depends(get_db)):
+    try:
+        with db.begin():
+            sale, message = confirm_sale_payment(db=db, sale_id=sale_id, payload=payload)
 
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+        return {"message": message, "sale_id": sale.id}
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-
-    if sale.status == "paid":
-        return {"message": "Already paid"}
-
-    sale.mark_as_paid(
-        db=db,
-        amount=payload.amount,
-        method=payload.method,
-        mpesa_ref=payload.mpesa_reference
-    )
-
-    return {"message": "Payment confirmed", "sale_id": sale.id}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to confirm payment for sale_id=%s", sale_id)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =========================

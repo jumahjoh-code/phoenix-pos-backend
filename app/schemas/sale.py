@@ -60,15 +60,23 @@ class SaleCreate(BaseModel):
         total = values.get("total_amount", 0)
         method = values.get("payment_method", "cash")
         status = values.get("status", "paid")
+        source = values.get("source", "pos")
 
         v = v or 0
 
+        if status != "paid":
+            return 0
+
+        # POS sales are auto-set to fully paid in the service layer
+        if source == "pos":
+            return total
+
         # 🔥 CASH RULE
-        if method == "cash" and status == "paid" and v < total:
+        if method == "cash" and v < total:
             raise ValueError("Insufficient cash provided")
 
         # 🔥 M-PESA RULE
-        if method == "mpesa" and status == "paid" and not values.get("mpesa_reference"):
+        if method == "mpesa" and not values.get("mpesa_reference"):
             raise ValueError("M-Pesa reference required")
 
         return v
