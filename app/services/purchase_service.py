@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
-from app.models.purchase import Purchase
-from app.models.purchase_item import PurchaseItem
-from app.services.inventory_service import update_stock
+from models.purchase import Purchase
+from models.purchase_item import PurchaseItem
+from services.inventory_service import update_stock
 
 
 def create_purchase(db: Session, purchase_data):

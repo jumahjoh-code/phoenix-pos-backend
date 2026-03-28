@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from datetime import datetime
 
-from app.core.database import get_db
-from app.models.ledger import Ledger
+from core.database import get_db
+from models.ledger import Ledger
 
 router = APIRouter(prefix="/ledger", tags=["Ledger"])
 
@@ -34,13 +33,13 @@ def create_entry(data: dict, db: Session = Depends(get_db)):
 
 
 # =========================
-# 🧾 SALES → AUTO LEDGER
+# 🧾 SALES → AUTO LEDGER (🔥 NEW)
 # =========================
 @router.post("/sale")
 def record_sale(data: dict, db: Session = Depends(get_db)):
 
     total = float(data.get("total", 0))
-    method = data.get("method", "cash")
+    method = data.get("method", "cash")  # cash / mpesa_business
     reference = data.get("reference")
 
     if total <= 0:
@@ -59,97 +58,6 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Sale recorded in ledger"}
-
-
-# =========================
-# 💸 EXPENSE FROM PETTY CASH
-# =========================
-@router.post("/expense")
-def record_expense(data: dict, db: Session = Depends(get_db)):
-
-    amount = float(data.get("amount", 0))
-    description = data.get("description")
-    category = data.get("category", "general")
-
-    if amount <= 0:
-        return {"error": "Invalid amount"}
-
-    entry = Ledger(
-        type="expense",
-        amount=-amount,
-        method="petty_cash",  # 🔥 important
-        description=f"{category}: {description}",
-        created_at=datetime.utcnow(),
-    )
-
-    db.add(entry)
-    db.commit()
-
-    return {"message": "Expense recorded (petty cash)"}
-
-
-# =========================
-# 💰 FUND PETTY CASH
-# =========================
-@router.post("/petty-cash/fund")
-def fund_petty_cash(data: dict, db: Session = Depends(get_db)):
-
-    amount = float(data.get("amount", 0))
-
-    if amount <= 0:
-        return {"error": "Invalid amount"}
-
-    db.add_all([
-        Ledger(
-            type="petty_cash_fund",
-            amount=-amount,
-            method="cash",
-            description="Transfer to petty cash",
-            created_at=datetime.utcnow(),
-        ),
-        Ledger(
-            type="petty_cash_fund",
-            amount=amount,
-            method="petty_cash",
-            description="Petty cash funded",
-            created_at=datetime.utcnow(),
-        )
-    ])
-
-    db.commit()
-
-    return {"message": "Petty cash funded"}
-
-
-# =========================
-# 💰 PETTY CASH BALANCE
-# =========================
-@router.get("/petty-cash")
-def petty_cash_balance(db: Session = Depends(get_db)):
-
-    entries = db.query(Ledger)\
-        .filter(Ledger.method == "petty_cash")\
-        .order_by(Ledger.created_at.asc())\
-        .all()
-
-    balance = 0
-    history = []
-
-    for e in entries:
-        balance += e.amount
-
-        history.append({
-            "type": e.type,
-            "amount": e.amount,
-            "description": e.description,
-            "balance": balance,
-            "created_at": e.created_at
-        })
-
-    return {
-        "balance": balance,
-        "history": list(reversed(history))
-    }
 
 
 # =========================
@@ -209,7 +117,7 @@ def mpesa_agent(data: dict, db: Session = Depends(get_db)):
 
 
 # =========================
-# 💵 CASH CONTROL
+# 💵 CASH CONTROL (IMPROVED)
 # =========================
 @router.post("/cash")
 def cash_control(data: dict, db: Session = Depends(get_db)):
@@ -269,7 +177,7 @@ def get_cash_data(db: Session = Depends(get_db)):
             "type": "in" if e.amount > 0 else "out",
             "amount": abs(e.amount),
             "reason": e.description,
-            "balance": balance,
+            "balance": balance,  # 🔥 running balance
             "created_at": e.created_at
         })
 
@@ -280,53 +188,7 @@ def get_cash_data(db: Session = Depends(get_db)):
 
 
 # =========================
-# 📊 PROFIT & LOSS
-# =========================
-@router.get("/reports/profit-loss")
-def profit_loss(db: Session = Depends(get_db)):
-
-    entries = db.query(Ledger).all()
-
-    income = 0
-    expenses = 0
-
-    for e in entries:
-        if e.type == "sale":
-            income += e.amount
-        elif e.type == "expense":
-            expenses += abs(e.amount)
-
-    return {
-        "income": income,
-        "expenses": expenses,
-        "net_profit": income - expenses
-    }
-
-
-# =========================
-# 📅 MONTHLY REPORT
-# =========================
-@router.get("/reports/monthly")
-def monthly_report(db: Session = Depends(get_db)):
-
-    results = db.query(
-        func.strftime("%Y-%m", Ledger.created_at),
-        func.sum(Ledger.amount)
-    ).group_by(
-        func.strftime("%Y-%m", Ledger.created_at)
-    ).all()
-
-    return [
-        {
-            "month": r[0],
-            "net": float(r[1] or 0)
-        }
-        for r in results
-    ]
-
-
-# =========================
-# 📊 FULL SUMMARY (UPDATED)
+# 📊 FULL SUMMARY (IMPROVED)
 # =========================
 @router.get("/summary")
 def get_summary(db: Session = Depends(get_db)):
@@ -336,7 +198,6 @@ def get_summary(db: Session = Depends(get_db)):
     cash = 0
     mpesa_business = 0
     mpesa_agent = 0
-    petty_cash = 0
 
     for e in entries:
         if e.method == "cash":
@@ -345,15 +206,12 @@ def get_summary(db: Session = Depends(get_db)):
             mpesa_business += e.amount
         elif e.method == "mpesa_agent":
             mpesa_agent += e.amount
-        elif e.method == "petty_cash":
-            petty_cash += e.amount
 
     return {
         "cash_balance": cash,
         "mpesa_business_balance": mpesa_business,
         "mpesa_agent_balance": mpesa_agent,
-        "petty_cash_balance": petty_cash,
-        "total_balance": cash + mpesa_business + mpesa_agent + petty_cash,
+        "total_balance": cash + mpesa_business + mpesa_agent,
         "total_entries": len(entries)
     }
 

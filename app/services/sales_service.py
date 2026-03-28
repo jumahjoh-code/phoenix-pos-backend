@@ -1,122 +1,63 @@
-from fastapi import HTTPException
-from app.models.sale import Sale
-from app.models.sale_item import SaleItem
-from app.models.product import Product
-from app.services.stock_service import apply_sale_stock
+from models.sale import Sale
+from models.sale_item import SaleItem
+from models.product import Product
 
 
-def create_sale(db, items, total, amount_paid, user_id=None, source="pos"):
+def create_sale(db, items, total, amount_paid, user_id=None):
 
-    try:
-        if not items:
-            raise HTTPException(status_code=400, detail="No items provided")
+    cost_total = 0
 
-        total_amount = 0
-        cost_total = 0
+    # =========================
+    # CREATE SALE
+    # =========================
+    sale = Sale(
+        total_amount=total,
+        amount_paid=amount_paid,
+        balance=total - amount_paid,
+        status="completed",
+        user_id=user_id  # ✅ FIXED
+    )
 
-        # =========================
-        # STATUS
-        # =========================
-        is_paid = amount_paid >= total
-        status = "paid" if is_paid else "pending"
+    db.add(sale)
+    db.flush()
 
-        # =========================
-        # CREATE SALE
-        # =========================
-        sale = Sale(
-            total_amount=0,
-            amount_paid=amount_paid,
-            balance=0,
-            status=status,
-            user_id=user_id,
-            source=source
+    # =========================
+    # PROCESS ITEMS
+    # =========================
+    for item in items:
+        product = db.query(Product).filter(Product.id == item["product_id"]).first()
+
+        if not product:
+            raise Exception("Product not found")
+
+        quantity = item["quantity"]
+
+        # ✅ STOCK CONTROL (IMPORTANT)
+        if product.stock_quantity < quantity:
+            raise Exception(f"{product.name} out of stock")
+
+        # Reduce stock
+        product.stock_quantity -= quantity
+
+        item_total_cost = product.cost_price * quantity
+        cost_total += item_total_cost
+
+        sale_item = SaleItem(
+            sale_id=sale.id,
+            product_id=product.id,
+            quantity=quantity,
+            price=product.retail_price,
+            cost_price=product.cost_price
         )
 
-        db.add(sale)
-        db.flush()
+        db.add(sale_item)
 
-        # =========================
-        # PROCESS ITEMS
-        # =========================
-        processed_items = []
+    # =========================
+    # UPDATE PROFIT BASE
+    # =========================
+    sale.cost_total = cost_total
 
-        for item in items:
+    db.commit()
+    db.refresh(sale)
 
-            product = db.query(Product).filter(Product.id == item["product_id"]).first()
-
-            if not product:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Product not found: {item['product_id']}"
-                )
-
-            quantity = int(item["quantity"])
-
-            if product.stock_quantity < quantity:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{product.name} out of stock"
-                )
-
-            # SUPPORT BOTH price + retail_price
-            unit_price = float(
-                getattr(product, "price", None) or getattr(product, "retail_price", 0)
-            )
-
-            if unit_price <= 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid price for {product.name}"
-                )
-
-            cost_price = float(getattr(product, "cost_price", 0))
-
-            line_total = unit_price * quantity
-            total_amount += line_total
-            cost_total += cost_price * quantity
-
-            sale_item = SaleItem(
-                sale_id=sale.id,
-                product_id=product.id,
-                quantity=quantity,
-                price=unit_price,
-                cost_price=cost_price,
-                line_total=line_total
-            )
-
-            db.add(sale_item)
-
-            processed_items.append((product, quantity))
-
-        # =========================
-        # APPLY STOCK
-        # =========================
-        for product, quantity in processed_items:
-
-            apply_sale_stock(
-                db=db,
-                product=product,
-                quantity=quantity,
-                source=source,
-                status=status,
-                reference=f"sale_{sale.id}"
-            )
-
-        # =========================
-        # FINALIZE SALE
-        # =========================
-        sale.total_amount = total_amount
-        sale.cost_total = cost_total
-        sale.balance = max(total_amount - amount_paid, 0)
-
-        db.commit()
-        db.refresh(sale)
-
-        # =========================
-        # ✅ RETURN MODEL (CRITICAL FIX)
-        # =========================
-        return sale
-
-    except Exception as e:
-        db.rollback()
-        raise e
+    return sale

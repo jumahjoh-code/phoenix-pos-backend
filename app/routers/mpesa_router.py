@@ -1,114 +1,196 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-import requests
-import base64
-import datetime
-import os
+from fastapi import APIRouter, Request, HTTPException, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import logging
+from datetime import datetime, date
 
-router = APIRouter(prefix="/mpesa", tags=["Mpesa"])
+from core.database import get_db
+from services.payment_service import (
+    create_payment,
+    attach_checkout_request_id,
+    mark_payment_success,
+    mark_payment_failed
+)
+from services.mpesa import stk_push
+from schemas.payment import STKPushRequest
 
-# =========================
-# CONFIG (SET THESE IN ENV)
-# =========================
-CONSUMER_KEY = os.getenv("MPESA_CONSUMER_KEY")
-CONSUMER_SECRET = os.getenv("MPESA_CONSUMER_SECRET")
-SHORTCODE = os.getenv("MPESA_SHORTCODE")
-PASSKEY = os.getenv("MPESA_PASSKEY")
-CALLBACK_URL = os.getenv("MPESA_CALLBACK_URL")
+from models.sale import Sale
+from models.ledger import Ledger
+from models.payment import Payment  # 🔥 NEW
 
-# =========================
-# REQUEST MODEL
-# =========================
-class STKPushRequest(BaseModel):
-    phone: str
-    amount: float
+router = APIRouter(prefix="/mpesa", tags=["M-Pesa"])
 
-# =========================
-# ACCESS TOKEN
-# =========================
-def get_access_token():
-    url = "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+logger = logging.getLogger(__name__)
 
-    response = requests.get(url, auth=(CONSUMER_KEY, CONSUMER_SECRET))
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=400, detail="Failed to get access token")
-
-    return response.json().get("access_token")
-
-# =========================
-# PASSWORD GENERATION
-# =========================
-def generate_password():
-    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    data_to_encode = SHORTCODE + PASSKEY + timestamp
-    password = base64.b64encode(data_to_encode.encode()).decode("utf-8")
-    return password, timestamp
 
 # =========================
 # STK PUSH ENDPOINT
 # =========================
 @router.post("/stk-push")
-def stk_push(payload: STKPushRequest):
+def initiate_stk_push(
+    payload: STKPushRequest,
+    db: Session = Depends(get_db)
+):
     try:
-        access_token = get_access_token()
-        password, timestamp = generate_password()
+        logger.info(f"STK REQUEST: {payload.dict()}")
 
-        url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        payment = create_payment(
+            db,
+            payload.sale_id,
+            payload.amount,
+            "mpesa"
+        )
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
+        stk_response = stk_push(
+            payload.phone,
+            payload.amount,
+            payload.sale_id
+        )
 
-        data = {
-            "BusinessShortCode": SHORTCODE,
-            "Password": password,
-            "Timestamp": timestamp,
-            "TransactionType": "CustomerPayBillOnline",
-            "Amount": int(payload.amount),
-            "PartyA": payload.phone,
-            "PartyB": SHORTCODE,
-            "PhoneNumber": payload.phone,
-            "CallBackURL": CALLBACK_URL,
-            "AccountReference": "PhoenixPOS",
-            "TransactionDesc": "Payment"
-        }
+        logger.info(f"STK RESPONSE: {stk_response}")
 
-        response = requests.post(url, json=data, headers=headers)
+        if "error" in stk_response:
+            return {
+                "success": False,
+                "message": "STK push failed",
+                "details": stk_response.get("details")
+            }
 
-        if response.status_code != 200:
-            raise HTTPException(status_code=400, detail="STK push failed")
+        checkout_id = stk_response.get("CheckoutRequestID")
+
+        if not checkout_id:
+            return {
+                "success": False,
+                "message": "No CheckoutRequestID returned",
+                "response": stk_response
+            }
+
+        attach_checkout_request_id(db, payment.id, checkout_id)
 
         return {
-            "status": "success",
-            "data": response.json()
+            "success": True,
+            "message": "STK push sent",
+            "checkout_request_id": checkout_id,
+            "customer_message": stk_response.get("CustomerMessage")
         }
 
     except Exception as e:
-        print(f"Mpesa STK Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Mpesa request failed")
+        logger.error(f"STK ERROR: {str(e)}")
+
+        return {
+            "success": False,
+            "message": "STK push error",
+            "error": str(e)
+        }
+
 
 # =========================
-# CALLBACK ENDPOINT
+# CALLBACK (SAFE VERSION)
 # =========================
 @router.post("/callback")
-def mpesa_callback(data: dict):
+async def mpesa_callback(request: Request, db: Session = Depends(get_db)):
     try:
-        print("Mpesa Callback Received:", data)
+        data = await request.json()
 
-        # Extract useful info safely
-        body = data.get("Body", {}).get("stkCallback", {})
-        result_code = body.get("ResultCode")
-        result_desc = body.get("ResultDesc")
+        logger.info(f"M-Pesa Callback: {data}")
 
-        if result_code == 0:
-            print("Payment successful")
-        else:
-            print(f"Payment failed: {result_desc}")
+        stk_callback = data.get("Body", {}).get("stkCallback", {})
 
-        return {"status": "received"}
+        result_code = stk_callback.get("ResultCode")
+        checkout_request_id = stk_callback.get("CheckoutRequestID")
+
+        if not checkout_request_id:
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+        # ❌ FAILED PAYMENT
+        if result_code != 0:
+            mark_payment_failed(db, checkout_request_id)
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+        # ✅ METADATA
+        metadata_items = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+        metadata = {item["Name"]: item.get("Value") for item in metadata_items}
+
+        mpesa_code = metadata.get("MpesaReceiptNumber")
+        amount = metadata.get("Amount")
+
+        # 🔥 DUPLICATE PROTECTION
+        existing_ledger = db.query(Ledger).filter(
+            Ledger.reference == mpesa_code
+        ).first()
+
+        if existing_ledger:
+            logger.warning(f"Duplicate callback ignored: {mpesa_code}")
+            return {"ResultCode": 0, "ResultDesc": "Already processed"}
+
+        # 🔥 MARK PAYMENT SUCCESS
+        payment = mark_payment_success(db, checkout_request_id, mpesa_code)
+
+        if not payment:
+            logger.error("Payment not found")
+            return {"ResultCode": 0, "ResultDesc": "Payment not found"}
+
+        # 🔥 CREATE LEDGER ENTRY
+        sale = db.query(Sale).filter(Sale.id == payment.sale_id).first()
+
+        if sale:
+            ledger_entry = Ledger(
+                type="sale",
+                amount=amount,
+                method="mpesa_business",
+                reference=mpesa_code,
+                description=f"M-Pesa STK sale #{sale.id}",
+                created_at=datetime.utcnow(),
+            )
+
+            db.add(ledger_entry)
+            db.commit()
+
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     except Exception as e:
-        print(f"Callback error: {str(e)}")
-        return {"status": "error"}
+        logger.error(f"Callback Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Callback failed")
+
+
+# =========================
+# 🔥 M-PESA RECONCILIATION (TODAY)
+# =========================
+@router.get("/reconciliation/today")
+def mpesa_reconciliation_today(db: Session = Depends(get_db)):
+
+    today = date.today()
+
+    # Ledger (business mpesa)
+    ledger_entries = db.query(Ledger).filter(
+        Ledger.method == "mpesa_business",
+        func.date(Ledger.created_at) == today
+    ).all()
+
+    ledger_total = sum(e.amount for e in ledger_entries)
+
+    # Payments
+    payments = db.query(Payment).filter(
+        Payment.method == "mpesa",
+        Payment.status == "completed",
+        func.date(Payment.created_at) == today
+    ).all()
+
+    payment_total = sum(p.amount for p in payments)
+
+    # Matching
+    ledger_refs = set(e.reference for e in ledger_entries if e.reference)
+    payment_refs = set(p.mpesa_code for p in payments if p.mpesa_code)
+
+    missing_in_ledger = payment_refs - ledger_refs
+    missing_in_payments = ledger_refs - payment_refs
+
+    return {
+        "ledger_total": ledger_total,
+        "payment_total": payment_total,
+        "difference": payment_total - ledger_total,
+        "matched_transactions": len(ledger_refs & payment_refs),
+        "missing_in_ledger": list(missing_in_ledger),
+        "missing_in_payments": list(missing_in_payments),
+        "status": "OK" if payment_total == ledger_total else "MISMATCH"
+    }

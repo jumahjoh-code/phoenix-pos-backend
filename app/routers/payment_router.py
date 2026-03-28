@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.schemas.payment import CashPaymentRequest
-from app.services.payment_service import (
+from core.database import get_db
+from schemas.payment import CashPaymentRequest
+from services.payment_service import (
     mark_cash_payment,
     get_payments_by_sale,
     get_total_paid

@@ -1,14 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
-from app.core.database import Base, engine
+from core.database import Base, engine
 
 # =========================
 # IMPORT MODELS (REGISTER TABLES)
 # =========================
-from app.models import (
+from models import (
     product,
     customer,
     user,
@@ -19,30 +17,35 @@ from app.models import (
     supplier,
     purchase,
     purchase_item,
-    ledger,
-    chat,
-    ai_learning
+
+    # 🔥 NEW: LEDGER MODEL
+    ledger
 )
 
 # =========================
 # ROUTERS
 # =========================
-from app.routers.product_router import router as product_router
-from app.routers.customer_router import router as customer_router
-from app.routers.sales_router import router as sales_router
-from app.routers.inventory_router import router as inventory_router
-from app.routers.supplier_router import router as supplier_router
-from app.routers.purchase_router import router as purchase_router
-from app.routers.dashboard_router import router as dashboard_router
+from routers.product_router import router as product_router
+from routers.customer_router import router as customer_router
+from routers.sales_router import router as sales_router
+from routers.inventory_router import router as inventory_router
+from routers.supplier_router import router as supplier_router
+from routers.purchase_router import router as purchase_router
+from routers.dashboard_router import router as dashboard_router
 
-from app.routers.user_router import router as user_router
-from app.routers.auth_router import router as auth_router
+# Users & Auth
+from routers.user_router import router as user_router
+from routers.auth_router import router as auth_router
 
-from app.routers.payment_router import router as payment_router
-from app.routers.mpesa_router import router as mpesa_router
+# Payments
+from routers.payment_router import router as payment_router
 
-from app.routers.ledger_router import router as ledger_router
-from app.routers.ai_router import router as ai_router
+# M-Pesa
+from routers.mpesa_router import router as mpesa_router
+
+# 🔥 NEW: LEDGER ROUTER (CRITICAL)
+from routers.ledger_router import router as ledger_router
+
 
 # =========================
 # APP INIT
@@ -52,65 +55,26 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# =========================
-# 🔥 GLOBAL VALIDATION ERROR HANDLER
-# =========================
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request, exc):
-    print("\n❌❌❌ VALIDATION ERROR ❌❌❌")
-    for err in exc.errors():
-        print(err)
-    print("❌ BODY FAILED VALIDATION\n")
-
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": exc.errors(),
-            "message": "Request validation failed"
-        },
-    )
 
 # =========================
-# ✅ CORS (PRODUCTION SAFE)
+# CORS
 # =========================
-origins = [
-    "http://localhost:3000",
-    "https://phoenix-pos-frontend.onrender.com",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # ⚠️ Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 # =========================
-# 🚀 STARTUP (FIXED DB ISSUE)
+# STARTUP
 # =========================
 @app.on_event("startup")
 def startup():
-    print("🚀 Starting Phoenix POS...")
+    Base.metadata.create_all(bind=engine)
 
-    # 🔥 FORCE RESET DATABASE (DEV FIX)
-    try:
-        Base.metadata.drop_all(bind=engine)
-        Base.metadata.create_all(bind=engine)
-        print("✅ Database recreated cleanly")
-    except Exception as e:
-        print("❌ DB recreation error:", e)
-
-    # 🔥 AUTO FIX COLUMN
-    from sqlalchemy import text
-
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE sales ADD COLUMN offline_id TEXT"))
-            conn.commit()
-            print("✅ offline_id column ensured")
-    except Exception as e:
-        print("ℹ️ offline_id may already exist:", e)
 
 # =========================
 # ROUTERS
@@ -123,14 +87,19 @@ app.include_router(supplier_router)
 app.include_router(purchase_router)
 app.include_router(dashboard_router)
 
+# Users & Auth
 app.include_router(user_router)
 app.include_router(auth_router)
 
+# Payments
 app.include_router(payment_router)
+
+# M-Pesa
 app.include_router(mpesa_router)
 
+# 🔥 LEDGER (MOST IMPORTANT)
 app.include_router(ledger_router)
-app.include_router(ai_router)
+
 
 # =========================
 # HEALTH CHECK / ROOT
@@ -146,7 +115,6 @@ def root():
             "inventory",
             "payments",
             "mpesa",
-            "ledger",
-            "ai"
+            "ledger"
         ]
     }

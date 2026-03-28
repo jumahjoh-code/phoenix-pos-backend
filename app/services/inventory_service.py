@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models.inventory import Inventory
+from models.inventory import Inventory
 
 
 def get_inventory(db: Session):
