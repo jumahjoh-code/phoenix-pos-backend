@@ -9,8 +9,8 @@ from alembic import context
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # 🔥 IMPORT YOUR DATABASE + MODELS
-from core.database import Base
-from models import *
+from app.core.database import Base
+from app.models.import *
 
 # Alembic Config object
 config = context.config

@@ -4,19 +4,19 @@ from sqlalchemy import func
 import logging
 from datetime import datetime, date
 
-from core.database import get_db
-from services.payment_service import (
+from app.core.database import get_db
+from app.services.payment_service import (
     create_payment,
     attach_checkout_request_id,
     mark_payment_success,
     mark_payment_failed
 )
-from services.mpesa import stk_push
-from schemas.payment import STKPushRequest
+from app.services.mpesa import stk_push
+from app.schemas.payment import STKPushRequest
 
-from models.sale import Sale
-from models.ledger import Ledger
-from models.payment import Payment  # 🔥 NEW
+from app.models.sale import Sale
+from app.models.ledger import Ledger
+from app.models.payment import Payment  # 🔥 NEW
 
 router = APIRouter(prefix="/mpesa", tags=["M-Pesa"])
 

@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey
-from core.database import Base
+from app.core.database import Base
 
 
 class PurchaseItem(Base):

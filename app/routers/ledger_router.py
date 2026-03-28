@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime
 
-from core.database import get_db
-from models.ledger import Ledger
+from app.core.database import get_db
+from app.models.ledger import Ledger
 
 router = APIRouter(prefix="/ledger", tags=["Ledger"])
 

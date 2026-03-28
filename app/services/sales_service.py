@@ -1,6 +1,6 @@
-from models.sale import Sale
-from models.sale_item import SaleItem
-from models.product import Product
+from app.models.sale import Sale
+from app.models.sale_item import SaleItem
+from app.models.product import Product
 
 
 def create_sale(db, items, total, amount_paid, user_id=None):

@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from models.payment import Payment
-from models.sale import Sale
+from app.models.payment import Payment
+from app.models.sale import Sale
 
 
 # 🔷 CREATE PAYMENT (USED BEFORE STK PUSH OR CASH)

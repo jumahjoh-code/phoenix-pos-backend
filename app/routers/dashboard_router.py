@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from core.database import get_db
+from app.core.database import get_db
 from datetime import datetime, timedelta
 
-from models.sale import Sale
-from models.sale_item import SaleItem
-from models.inventory import Inventory
+from app.models.sale import Sale
+from app.models.sale_item import SaleItem
+from app.models.inventory import Inventory
 
 router = APIRouter(
     prefix="/api",

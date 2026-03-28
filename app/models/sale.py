@@ -2,8 +2,8 @@ from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, Session
 
-from core.database import Base
-from models.ledger import Ledger  # 🔥 IMPORTANT
+from app.core.database import Base
+from app.models.ledger import Ledger  # 🔥 IMPORTANT
 
 
 class Sale(Base):

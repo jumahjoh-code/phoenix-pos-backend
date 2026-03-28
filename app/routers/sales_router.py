@@ -3,10 +3,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date, datetime
 
-from core.database import get_db
-from services.sales_service import create_sale
-from models.sale import Sale
-from models.user import User
+from app.core.database import get_db
+from app.services.sales_service import create_sale
+from app.models.sale import Sale
+from app.models.user import User
 
 router = APIRouter(
     prefix="/sales",

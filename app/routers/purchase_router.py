@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from schemas.purchase_schema import PurchaseCreate
-from services.purchase_service import create_purchase
+from app.core.database import get_db
+from app.schemas.purchase_schema import PurchaseCreate
+from app.services.purchase_service import create_purchase
 
 router = APIRouter(
     prefix="/purchases",

@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.database import Base, engine
+from app.core.database import Base, engine
 
 # =========================
 # IMPORT MODELS (REGISTER TABLES)
 # =========================
-from models import (
+from app.models import (
     product,
     customer,
     user,
@@ -25,26 +25,26 @@ from models import (
 # =========================
 # ROUTERS
 # =========================
-from routers.product_router import router as product_router
-from routers.customer_router import router as customer_router
-from routers.sales_router import router as sales_router
-from routers.inventory_router import router as inventory_router
-from routers.supplier_router import router as supplier_router
-from routers.purchase_router import router as purchase_router
-from routers.dashboard_router import router as dashboard_router
+from app.routers.product_router import router as product_router
+from app.routers.customer_router import router as customer_router
+from app.routers.sales_router import router as sales_router
+from app.routers.inventory_router import router as inventory_router
+from app.routers.supplier_router import router as supplier_router
+from app.routers.purchase_router import router as purchase_router
+from app.routers.dashboard_router import router as dashboard_router
 
 # Users & Auth
-from routers.user_router import router as user_router
-from routers.auth_router import router as auth_router
+from app.routers.user_router import router as user_router
+from app.routers.auth_router import router as auth_router
 
 # Payments
-from routers.payment_router import router as payment_router
+from app.routers.payment_router import router as payment_router
 
 # M-Pesa
-from routers.mpesa_router import router as mpesa_router
+from app.routers.mpesa_router import router as mpesa_router
 
 # 🔥 NEW: LEDGER ROUTER (CRITICAL)
-from routers.ledger_router import router as ledger_router
+from app.routers.ledger_router import router as ledger_router
 
 
 # =========================
