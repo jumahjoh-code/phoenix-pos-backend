@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import date, datetime
+from datetime import date
 
 from app.core.database import get_db
 from app.services.sales_service import create_sale
 from app.models.sale import Sale
 from app.models.user import User
+
 
 router = APIRouter(
     prefix="/sales",
@@ -18,7 +19,6 @@ router = APIRouter(
 # HELPER: BUILD RECEIPT
 # =========================
 def build_receipt(sale):
-
     return {
         "sale_id": sale.id,
         "receipt_number": sale.receipt_number,
@@ -34,18 +34,18 @@ def build_receipt(sale):
             }
             for item in sale.items
         ],
-        "total_amount": sale.total_amount,
-        "cost_total": sale.cost_total,
-        "profit": sale.profit,
-        "amount_paid": sale.amount_paid,
-        "balance": sale.balance,
+        "total_amount": float(sale.total_amount),
+        "cost_total": float(sale.cost_total),
+        "profit": float(sale.profit),
+        "amount_paid": float(sale.amount_paid),
+        "balance": float(sale.balance),
         "payment_method": sale.payment_method,
         "status": sale.status
     }
 
 
 # =========================
-# 🔥 RECORD SALE (FULLY INTEGRATED)
+# RECORD SALE
 # =========================
 @router.post("/")
 def record_sale(data: dict, db: Session = Depends(get_db)):
@@ -54,41 +54,40 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
     total = data.get("total")
     amount_paid = float(data.get("amount_paid", 0))
     user_id = data.get("user_id")
-
     payment_method = data.get("payment_method", "cash")
     mpesa_reference = data.get("mpesa_reference")
 
-    if not items:
-        raise HTTPException(status_code=400, detail="No items provided")
+    # VALIDATION
+    if not items or not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="Items must be a non-empty list")
 
     if total is None:
         raise HTTPException(status_code=400, detail="Total is required")
 
     try:
-        # 🔥 CREATE SALE
         sale = create_sale(db, items, total, amount_paid, user_id)
 
-        # 🔥 SAVE PAYMENT DETAILS
+        # PAYMENT DETAILS
         sale.payment_method = payment_method
         sale.mpesa_reference = mpesa_reference
 
         db.commit()
         db.refresh(sale)
 
-        # =========================
-        # 🔥 AUTO LEDGER (CLEAN)
-        # =========================
-        sale.record_ledger_entries(db)
-        db.commit()
+        # LEDGER AUTO-POST
+        if hasattr(sale, "record_ledger_entries"):
+            sale.record_ledger_entries(db)
+            db.commit()
 
         return build_receipt(sale)
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Sale failed: {str(e)}")
 
 
 # =========================
-# 📜 LIST ALL SALES
+# LIST SALES
 # =========================
 @router.get("/")
 def list_sales(db: Session = Depends(get_db)):
@@ -100,9 +99,9 @@ def list_sales(db: Session = Depends(get_db)):
             "sale_id": sale.id,
             "date": sale.created_at,
             "user": sale.user.username if sale.user else None,
-            "total_amount": sale.total_amount,
-            "amount_paid": sale.amount_paid,
-            "balance": sale.balance,
+            "total_amount": float(sale.total_amount),
+            "amount_paid": float(sale.amount_paid),
+            "balance": float(sale.balance),
             "payment_method": sale.payment_method,
             "status": sale.status
         }
@@ -111,7 +110,21 @@ def list_sales(db: Session = Depends(get_db)):
 
 
 # =========================
-# 📊 TODAY SUMMARY (UPGRADED)
+# GET SINGLE SALE
+# =========================
+@router.get("/{sale_id}")
+def get_sale(sale_id: int, db: Session = Depends(get_db)):
+
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    return build_receipt(sale)
+
+
+# =========================
+# TODAY SUMMARY
 # =========================
 @router.get("/summary/today")
 def today_summary(db: Session = Depends(get_db)):
@@ -130,7 +143,7 @@ def today_summary(db: Session = Depends(get_db)):
     transactions, total_sales, total_cost, cash_collected = result
 
     return {
-        "transactions": transactions,
+        "transactions": int(transactions),
         "total_sales": float(total_sales),
         "total_cost": float(total_cost),
         "profit": float(total_sales - total_cost),
@@ -139,9 +152,9 @@ def today_summary(db: Session = Depends(get_db)):
 
 
 # =========================
-# 👨‍💼 CASHIER PERFORMANCE (UPGRADED)
+# CASHIER PERFORMANCE
 # =========================
-@router.get("/cashier-performance")
+@router.get("/reports/cashier-performance")
 def cashier_performance(db: Session = Depends(get_db)):
 
     results = db.query(
@@ -159,23 +172,9 @@ def cashier_performance(db: Session = Depends(get_db)):
         data.append({
             "user_id": user_id,
             "username": user.username if user else "Unknown",
-            "transactions": transactions,
+            "transactions": int(transactions),
             "total_sales": float(total_sales),
             "profit": float(total_sales - total_cost)
         })
 
     return data
-
-
-# =========================
-# 🔍 GET SINGLE SALE
-# =========================
-@router.get("/{sale_id}")
-def get_sale(sale_id: int, db: Session = Depends(get_db)):
-
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-
-    return build_receipt(sale)
