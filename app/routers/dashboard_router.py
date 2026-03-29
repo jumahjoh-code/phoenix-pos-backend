@@ -9,7 +9,7 @@ from app.models.sale_item import SaleItem
 from app.models.inventory import Inventory
 
 router = APIRouter(
-    prefix="/api",
+    prefix="/ai",
     tags=["Dashboard"]
 )
 
