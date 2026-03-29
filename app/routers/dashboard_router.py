@@ -1,28 +1,28 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from app.core.database import get_db
 from datetime import datetime, timedelta
 
+from app.core.database import get_db
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.inventory import Inventory
+
 
 router = APIRouter(
     prefix="/ai",
     tags=["Dashboard"]
 )
 
-@router.get("/dashboard-summary")
+
+# =========================
+# DASHBOARD SUMMARY
+# =========================
+@router.get("/dashboard")
 def dashboard_summary(db: Session = Depends(get_db)):
 
-    # 🔹 Total Sales (sum of all sales)
     total_sales = db.query(func.sum(Sale.total_amount)).scalar() or 0
-
-    # 🔹 Total Transactions
     total_transactions = db.query(func.count(Sale.id)).scalar() or 0
-
-    # 🔹 Low Stock (quantity < 10)
     low_stock_items = db.query(Inventory).filter(Inventory.quantity < 10).count()
 
     return {
@@ -31,6 +31,10 @@ def dashboard_summary(db: Session = Depends(get_db)):
         "low_stock": low_stock_items
     }
 
+
+# =========================
+# RECENT SALES
+# =========================
 @router.get("/recent-sales")
 def recent_sales(db: Session = Depends(get_db)):
 
@@ -41,18 +45,19 @@ def recent_sales(db: Session = Depends(get_db)):
         .all()
     )
 
-    result = []
-
-    for sale in sales:
-        result.append({
+    return [
+        {
             "id": sale.id,
             "total": float(sale.total_amount),
             "date": str(sale.created_at) if hasattr(sale, "created_at") else "N/A"
-        })
+        }
+        for sale in sales
+    ]
 
-    return result
 
-
+# =========================
+# LOW STOCK
+# =========================
 @router.get("/low-stock")
 def low_stock_products(db: Session = Depends(get_db)):
 
@@ -62,44 +67,19 @@ def low_stock_products(db: Session = Depends(get_db)):
         .all()
     )
 
-    result = []
-
-    for item in items:
-        result.append({
+    return [
+        {
             "product_id": item.product_id,
             "quantity": item.quantity
-        })
-
-    return result
-
-
-@router.get("/sales-analytics")
-def sales_analytics(db: Session = Depends(get_db)):
-
-    sales = db.query(Sale).all()
-
-    daily_totals = {}
-
-    for sale in sales:
-        date = str(sale.created_at.date()) if hasattr(sale, "created_at") else "unknown"
-
-        if date not in daily_totals:
-            daily_totals[date] = 0
-
-        daily_totals[date] += float(sale.total_amount)
-
-    # Convert to chart format
-    result = []
-    for date, total in daily_totals.items():
-        result.append({
-            "date": date,
-            "total": total
-        })
-
-    return result
+        }
+        for item in items
+    ]
 
 
-@router.get("/sales-analytics")
+# =========================
+# SALES ANALYTICS (DAILY)
+# =========================
+@router.get("/reports/daily")
 def sales_analytics(range: str = "7d", db: Session = Depends(get_db)):
 
     now = datetime.now()
@@ -129,20 +109,17 @@ def sales_analytics(range: str = "7d", db: Session = Depends(get_db)):
 
         daily_totals[date] += float(sale.total_amount)
 
-    result = []
-    for date, total in sorted(daily_totals.items()):
-        result.append({
-            "date": date,
-            "total": total
-        })
-
-    return result
+    return [
+        {"date": date, "total": total}
+        for date, total in sorted(daily_totals.items())
+    ]
 
 
-@router.get("/profit-analytics")
+# =========================
+# PROFIT ANALYTICS
+# =========================
+@router.get("/reports/profit")
 def profit_analytics(range: str = "7d", db: Session = Depends(get_db)):
-
-    from datetime import datetime, timedelta
 
     now = datetime.now()
 
@@ -165,10 +142,9 @@ def profit_analytics(range: str = "7d", db: Session = Depends(get_db)):
 
     for sale in sales:
         date = str(sale.created_at.date())
-
         profit = 0
 
-        for item in sale.items:  # assumes relationship exists
+        for item in sale.items:
             cost = item.cost_price * item.quantity
             revenue = item.price * item.quantity
             profit += (revenue - cost)
@@ -178,21 +154,17 @@ def profit_analytics(range: str = "7d", db: Session = Depends(get_db)):
 
         daily_profit[date] += profit
 
-    result = []
-    for date, total in sorted(daily_profit.items()):
-        result.append({
-            "date": date,
-            "profit": total
-        })
-
-    return result
+    return [
+        {"date": date, "profit": total}
+        for date, total in sorted(daily_profit.items())
+    ]
 
 
-@router.get("/top-products")
+# =========================
+# TOP PRODUCTS
+# =========================
+@router.get("/reports/top-products")
 def top_products(range: str = "7d", db: Session = Depends(get_db)):
-
-    from datetime import datetime, timedelta
-    from sqlalchemy import func
 
     now = datetime.now()
 
@@ -229,11 +201,11 @@ def top_products(range: str = "7d", db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/top-profit-products")
+# =========================
+# TOP PROFIT PRODUCTS
+# =========================
+@router.get("/reports/top-profit-products")
 def top_profit_products(range: str = "7d", db: Session = Depends(get_db)):
-
-    from datetime import datetime, timedelta
-    from sqlalchemy import func
 
     now = datetime.now()
 
@@ -272,16 +244,15 @@ def top_profit_products(range: str = "7d", db: Session = Depends(get_db)):
     ]
 
 
-
-@router.get("/dead-stock")
-def dead_stock(range: str = "30d", db: Session = Depends(get_db)):
-
-    from datetime import datetime, timedelta
+# =========================
+# DEAD STOCK
+# =========================
+@router.get("/reports/dead-stock")
+def dead_stock(db: Session = Depends(get_db)):
 
     now = datetime.now()
     start_date = now - timedelta(days=30)
 
-    # Products that had sales in last 30 days
     active_products = (
         db.query(SaleItem.product_id)
         .join(Sale)
@@ -292,7 +263,6 @@ def dead_stock(range: str = "30d", db: Session = Depends(get_db)):
 
     active_ids = [p.product_id for p in active_products]
 
-    # Products in inventory but NOT sold recently
     dead_items = (
         db.query(Inventory)
         .filter(~Inventory.product_id.in_(active_ids))
@@ -308,15 +278,16 @@ def dead_stock(range: str = "30d", db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/inventory-value")
+# =========================
+# INVENTORY VALUE
+# =========================
+@router.get("/reports/inventory-value")
 def inventory_value(db: Session = Depends(get_db)):
 
     total_value = 0
-
     items = db.query(Inventory).all()
 
     for item in items:
-        # assumes you have cost_price in inventory or linked product
         cost = item.cost_price if hasattr(item, "cost_price") else 0
         total_value += cost * item.quantity
 
