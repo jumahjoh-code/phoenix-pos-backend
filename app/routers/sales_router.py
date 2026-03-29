@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from app.core.database import get_db
 from app.services.sales_service import create_sale
 from app.models.sale import Sale
+from app.models.sale_item import SaleItem
 from app.models.user import User
 
 
@@ -54,12 +55,12 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
     total = data.get("total")
     amount_paid = float(data.get("amount_paid", 0))
     user_id = data.get("user_id")
+
     payment_method = data.get("payment_method", "cash")
     mpesa_reference = data.get("mpesa_reference")
 
-    # VALIDATION
     if not items or not isinstance(items, list):
-        raise HTTPException(status_code=400, detail="Items must be a non-empty list")
+        raise HTTPException(status_code=400, detail="Items must be provided")
 
     if total is None:
         raise HTTPException(status_code=400, detail="Total is required")
@@ -67,14 +68,12 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
     try:
         sale = create_sale(db, items, total, amount_paid, user_id)
 
-        # PAYMENT DETAILS
         sale.payment_method = payment_method
         sale.mpesa_reference = mpesa_reference
 
         db.commit()
         db.refresh(sale)
 
-        # LEDGER AUTO-POST
         if hasattr(sale, "record_ledger_entries"):
             sale.record_ledger_entries(db)
             db.commit()
@@ -83,7 +82,7 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Sale failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # =========================
@@ -149,6 +148,76 @@ def today_summary(db: Session = Depends(get_db)):
         "profit": float(total_sales - total_cost),
         "cash_collected": float(cash_collected)
     }
+
+
+# =========================
+# DAILY SALES REPORT
+# =========================
+@router.get("/reports/daily")
+def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
+
+    now = datetime.now()
+
+    if range == "today":
+        start_date = now - timedelta(days=1)
+    elif range == "7d":
+        start_date = now - timedelta(days=7)
+    elif range == "30d":
+        start_date = now - timedelta(days=30)
+    else:
+        start_date = now - timedelta(days=7)
+
+    sales = db.query(Sale).filter(Sale.created_at >= start_date).all()
+
+    totals = {}
+
+    for sale in sales:
+        d = str(sale.created_at.date())
+        totals[d] = totals.get(d, 0) + float(sale.total_amount)
+
+    return [{"date": d, "total": t} for d, t in sorted(totals.items())]
+
+
+# =========================
+# TOP PRODUCTS
+# =========================
+@router.get("/reports/top-products")
+def top_products(db: Session = Depends(get_db)):
+
+    results = (
+        db.query(
+            SaleItem.product_id,
+            func.sum(SaleItem.quantity).label("qty")
+        )
+        .join(Sale)
+        .group_by(SaleItem.product_id)
+        .order_by(func.sum(SaleItem.quantity).desc())
+        .limit(5)
+        .all()
+    )
+
+    return [{"product_id": r.product_id, "quantity": int(r.qty)} for r in results]
+
+
+# =========================
+# WORST PRODUCTS
+# =========================
+@router.get("/reports/worst-products")
+def worst_products(db: Session = Depends(get_db)):
+
+    results = (
+        db.query(
+            SaleItem.product_id,
+            func.sum(SaleItem.quantity).label("qty")
+        )
+        .join(Sale)
+        .group_by(SaleItem.product_id)
+        .order_by(func.sum(SaleItem.quantity).asc())
+        .limit(5)
+        .all()
+    )
+
+    return [{"product_id": r.product_id, "quantity": int(r.qty)} for r in results]
 
 
 # =========================
