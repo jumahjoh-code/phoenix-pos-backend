@@ -1,3 +1,5 @@
+// src/pages/Login.js
+
 import React, { useState } from "react";
 import { API } from "config";
 
@@ -22,17 +24,16 @@ export default function Login({ onLoginSuccess }) {
     try {
       setLoading(true);
 
-      // ✅ FIX: Use form-urlencoded
-      const formData = new URLSearchParams();
-      formData.append("username", username);
-      formData.append("password", password);
-
+      // ✅ JSON LOGIN (MATCHES FASTAPI)
       const res = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
+          "Content-Type": "application/json"
         },
-        body: formData
+        body: JSON.stringify({
+          username,
+          password
+        })
       });
 
       let data = {};
@@ -51,16 +52,13 @@ export default function Login({ onLoginSuccess }) {
       // =========================
       // 🔐 STORE AUTH DATA
       // =========================
-      if (data.access_token) {
-        localStorage.setItem("access_token", data.access_token);
-      }
-
-      localStorage.setItem("user", JSON.stringify(data));
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("user", JSON.stringify(data.user));
 
       // =========================
       // 🚀 SUCCESS CALLBACK
       // =========================
-      onLoginSuccess(data);
+      onLoginSuccess(data.user);
 
     } catch (err) {
       console.error(err);
@@ -120,6 +118,7 @@ export default function Login({ onLoginSuccess }) {
 // =========================
 // 🎨 STYLES
 // =========================
+
 const styles = {
 
   container: {
