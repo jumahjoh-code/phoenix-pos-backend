@@ -1,14 +1,16 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-alembic
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
 
-pydantic
-pydantic-settings
-python-dotenv
+sqlalchemy==2.0.32
+alembic==1.13.2
 
-passlib[bcrypt]
-python-jose[cryptography]
+pydantic==2.8.2
+pydantic-settings==2.4.0
+python-dotenv==1.0.1
 
-python-multipart
-requests
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+
+python-multipart==0.0.9
+requests==2.32.3
