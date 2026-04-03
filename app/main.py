@@ -6,6 +6,9 @@ import os
 
 from app.core.database import Base, engine
 
+# 🔥 ADD THIS
+from app.core.init_admin import create_default_admin
+
 # =========================
 # IMPORT MODELS
 # =========================
@@ -65,6 +68,9 @@ app.add_middleware(
 def startup():
     Base.metadata.create_all(bind=engine)
 
+    # 🔥 THIS FIXES YOUR LOGIN
+    create_default_admin()
+
 
 # =========================
 # ROUTERS
@@ -84,7 +90,7 @@ app.include_router(ledger_router)
 
 
 # =========================
-# FRONTEND PATH (RENDER SAFE)
+# FRONTEND PATH
 # =========================
 frontend_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
@@ -96,14 +102,12 @@ frontend_path = os.path.abspath(
 # =========================
 if os.path.exists(frontend_path):
 
-    # Static files (JS, CSS)
     app.mount(
         "/static",
         StaticFiles(directory=os.path.join(frontend_path, "static")),
         name="static"
     )
 
-    # Manifest
     @app.get("/manifest.json")
     async def manifest():
         return FileResponse(
@@ -111,12 +115,10 @@ if os.path.exists(frontend_path):
             media_type="application/json"
         )
 
-    # Favicon
     @app.get("/favicon.ico")
     async def favicon():
         return FileResponse(os.path.join(frontend_path, "favicon.ico"))
 
-    # Logos (FIXED)
     @app.get("/logo192.png")
     async def logo192():
         return FileResponse(os.path.join(frontend_path, "logo192.png"))
@@ -125,12 +127,10 @@ if os.path.exists(frontend_path):
     async def logo512():
         return FileResponse(os.path.join(frontend_path, "logo512.png"))
 
-    # Root → React
     @app.get("/")
     async def serve_react():
         return FileResponse(os.path.join(frontend_path, "index.html"))
 
-    # Catch-all → React Router
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
         return FileResponse(os.path.join(frontend_path, "index.html"))
