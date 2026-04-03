@@ -1,3 +1,5 @@
+// src/screens/Dashboard.js
+
 import { useEffect, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
@@ -9,7 +11,7 @@ import colors from "../design/colors";
 import spacing from "../design/spacing";
 import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
-import { API } from "config";
+import { authFetch } from "../core/api/apiClient";
 
 export default function Dashboard() {
 
@@ -17,7 +19,7 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ range: "today" });
 
-  const [summary, setSummary] = useState(null);
+  const [summary, setSummary] = useState({});
   const [salesData, setSalesData] = useState([]);
   const [topProducts, setTopProducts] = useState([]);
   const [worstProducts, setWorstProducts] = useState([]);
@@ -26,7 +28,7 @@ export default function Dashboard() {
   const [ai, setAI] = useState(null);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const formatKES = (v) =>
@@ -46,22 +48,28 @@ export default function Dashboard() {
         subtext: colors.subtext
       };
 
-  // ✅ SAFE FETCH
-  const fetchSafe = async (url) => {
+  // =========================
+  // 🔐 SAFE AUTH FETCH
+  // =========================
+  const fetchSafe = async (endpoint) => {
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed: ${url}`);
+      const res = await authFetch(endpoint);
+
+      if (!res || !res.ok) return null;
+
       return await res.json();
-    } catch (err) {
-      console.error(err.message);
+    } catch {
       return null;
     }
   };
 
+  // =========================
+  // 📊 FETCH DASHBOARD DATA
+  // =========================
   const fetchData = async () => {
     try {
       setLoading(true);
-      setError(null);
+      setError("");
 
       const [
         summary,
@@ -72,31 +80,28 @@ export default function Dashboard() {
         inventory,
         aiData
       ] = await Promise.all([
-        fetchSafe(`${API}/sales/summary/today?range=${filters.range}`),
-        fetchSafe(`${API}/sales/reports/daily?range=${filters.range}`),
-        fetchSafe(`${API}/sales/reports/top-products`),
-        fetchSafe(`${API}/sales/reports/worst-products`),
-        fetchSafe(`${API}/sales/cashier-performance`),
-        fetchSafe(`${API}/api/inventory-value`),
-        fetchSafe(`${API}/ai/dashboard`)
+        fetchSafe(`/sales/summary/today?range=${filters.range}`),
+        fetchSafe(`/sales/reports/daily?range=${filters.range}`),
+        fetchSafe(`/sales/reports/top-products`),
+        fetchSafe(`/sales/reports/worst-products`),
+        fetchSafe(`/sales/cashier-performance`),
+        fetchSafe(`/api/inventory-value`),
+        fetchSafe(`/ai/dashboard`)
       ]);
 
-      setSummary(summary);
-
-      // 🔥 CRITICAL FIXES
+      setSummary(summary || {});
       setSalesData(Array.isArray(sales) ? sales : []);
       setTopProducts(Array.isArray(top) ? top : []);
       setWorstProducts(Array.isArray(worst) ? worst : []);
       setCashiers(Array.isArray(cashier) ? cashier : []);
-
       setInventoryValue(inventory?.total_inventory_value || 0);
-      setAI(aiData);
+      setAI(aiData || null);
 
       setLastUpdated(new Date());
 
     } catch (err) {
       console.error(err);
-      setError(err.message || "Dashboard failed");
+      setError("Dashboard failed");
     } finally {
       setLoading(false);
     }
@@ -123,8 +128,8 @@ export default function Dashboard() {
     );
   }
 
-  const filteredCashiers = (Array.isArray(cashiers) ? cashiers : []).filter(c =>
-    c?.username?.toLowerCase().includes(search.toLowerCase())
+  const filteredCashiers = cashiers.filter(c =>
+    c?.cashier?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -136,36 +141,19 @@ export default function Dashboard() {
     }}>
 
       {/* TOP BAR */}
-      <div style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: spacing.lg
-      }}>
+      <div style={topBar}>
 
         <h2 style={{ color: colors.primary }}>Dashboard</h2>
 
-        <div style={{ display: "flex", gap: spacing.md, alignItems: "center" }}>
+        <div style={topControls}>
 
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            background: theme.card,
-            padding: "6px 10px",
-            borderRadius: 8
-          }}>
+          <div style={searchBox(theme)}>
             <Search size={14} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search cashier..."
-              style={{
-                border: "none",
-                outline: "none",
-                marginLeft: 5,
-                background: "transparent",
-                color: theme.text
-              }}
+              style={searchInput(theme)}
             />
           </div>
 
@@ -186,13 +174,12 @@ export default function Dashboard() {
             Updated: {lastUpdated?.toLocaleTimeString()}
           </small>
         </div>
-
       </div>
 
       {/* KPI */}
       <div style={grid}>
         <KPICard title="Sales" value={formatKES(summary?.total_sales)} icon={<DollarSign />} />
-        <KPICard title="Transactions" value={summary?.transactions} icon={<ShoppingCart />} />
+        <KPICard title="Transactions" value={summary?.transactions || 0} icon={<ShoppingCart />} />
         <KPICard title="Profit" value={formatKES(summary?.profit)} icon={<TrendingUp />} />
         <KPICard title="Inventory" value={formatKES(inventoryValue)} icon={<Package />} />
       </div>
@@ -209,11 +196,11 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* CHART (SAFE) */}
+      {/* CHART */}
       <Card>
         <h3>Sales vs Profit</h3>
 
-        {Array.isArray(salesData) && salesData.length > 0 ? (
+        {salesData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={salesData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -227,31 +214,27 @@ export default function Dashboard() {
         ) : (
           <p style={{ color: theme.subtext }}>No chart data available</p>
         )}
-
       </Card>
 
-      {/* TOP PRODUCTS */}
+      {/* PRODUCTS */}
       <Card>
         <h3>Top Products</h3>
-        {topProducts.length === 0 ? (
-          <p style={{ color: theme.subtext }}>No data</p>
-        ) : (
-          topProducts.map((p, i) => (
-            <Row key={i} name={p.name} value={formatKES(p.quantity)} />
-          ))
-        )}
+        {topProducts.length === 0
+          ? <p style={{ color: theme.subtext }}>No data</p>
+          : topProducts.map((p, i) => (
+              <Row key={i} name={p.name} value={formatKES(p.quantity)} />
+            ))
+        }
       </Card>
 
-      {/* WORST PRODUCTS */}
       <Card>
         <h3>Worst Products</h3>
-        {worstProducts.length === 0 ? (
-          <p style={{ color: theme.subtext }}>No data</p>
-        ) : (
-          worstProducts.map((p, i) => (
-            <Row key={i} name={p.name} value={formatKES(p.quantity)} danger />
-          ))
-        )}
+        {worstProducts.length === 0
+          ? <p style={{ color: theme.subtext }}>No data</p>
+          : worstProducts.map((p, i) => (
+              <Row key={i} name={p.name} value={formatKES(p.quantity)} danger />
+            ))
+        }
       </Card>
 
       {/* CASHIERS */}
@@ -269,7 +252,6 @@ export default function Dashboard() {
                 <th>Sales</th>
               </tr>
             </thead>
-
             <tbody>
               {filteredCashiers.map((c, i) => (
                 <tr key={i}>
@@ -287,6 +269,44 @@ export default function Dashboard() {
   );
 }
 
+// ================= UI =================
+
+const topBar = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: spacing.lg
+};
+
+const topControls = {
+  display: "flex",
+  gap: spacing.md,
+  alignItems: "center"
+};
+
+const searchBox = (theme) => ({
+  display: "flex",
+  alignItems: "center",
+  background: theme.card,
+  padding: "6px 10px",
+  borderRadius: 8
+});
+
+const searchInput = (theme) => ({
+  border: "none",
+  outline: "none",
+  marginLeft: 5,
+  background: "transparent",
+  color: theme.text
+});
+
+const grid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))",
+  gap: spacing.lg,
+  marginBottom: spacing.lg
+};
+
 function Row({ name, value, danger }) {
   return (
     <div style={{
@@ -301,10 +321,3 @@ function Row({ name, value, danger }) {
     </div>
   );
 }
-
-const grid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))",
-  gap: spacing.lg,
-  marginBottom: spacing.lg
-};
