@@ -1,165 +1,313 @@
-// src/screens/Login.js
+// src/App.js
 
-import React, { useState } from "react";
-import { API } from "config";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 
-export default function Login({ onLoginSuccess }) {
+import Login from "./screens/Login";
+import Dashboard from "./screens/Dashboard";
+import POSScreen from "./screens/POSScreen";
+import SalesHistory from "./screens/SalesHistory";
+import ProductsPage from "./screens/ProductsPage";
+import Users from "./screens/Users";
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+import MpesaAgentScreen from "./screens/MpesaAgentScreen";
+import CashScreen from "./screens/CashScreen";
+import ExpensesScreen from "./screens/ExpensesScreen";
 
-  const handleLogin = async () => {
+import MobilePOS from "./mobile/MobilePOS";
+import AIAssistant from "./screens/AIAssistant";
 
-    if (loading) return;
+import MainLayout from "./layout/MainLayout";
 
-    setError("");
+// ✅ HOOKS
+import useToast from "./ui/hooks/useToast";
+import useLoader from "./ui/hooks/useLoader";
 
-    if (!username.trim() || !password.trim()) {
-      setError("Enter username and password");
-      return;
-    }
+// ✅ API LAYER
+import { createSale } from "./core/api/requests/salesApi";
+import { payCash } from "./core/api/requests/paymentApi";
 
-    try {
-      setLoading(true);
+// 🔐 AUTH
+import { getUser, getToken, logout, isTokenExpired } from "./auth/auth";
 
-      const res = await fetch(`${API}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          username,
-          password
-        })
-      });
+const Ecommerce = lazy(() => import("./screens/Ecommerce"));
 
-      const data = await res.json();
+const defaultScreen = {
+  admin: "dashboard",
+  manager: "dashboard",
+  supervisor: "dashboard",
+  store_keeper: "products",
+  cashier: "pos",
+  sales: "mobile",
+  customer: "ecommerce",
+};
 
-      if (!res.ok) {
-        setError(data.detail || "Invalid login credentials");
+function App() {
+
+  const [screen, setScreen] = useState("login");
+  const [user, setUser] = useState(null);
+
+  const { showToast, message } = useToast();
+  const { loading, showLoader, hideLoader } = useLoader();
+
+  const api = {
+    createSale,
+    payCash
+  };
+
+  const roleAccess = {
+    admin: ["dashboard","pos","mobile","history","products","users","mpesa","cash","expenses","ecommerce","ai"],
+    manager: ["dashboard","history","products","ecommerce","ai"],
+    supervisor: ["dashboard","history"],
+    store_keeper: ["products"],
+    cashier: ["pos","mobile"],
+    sales: ["mobile","ecommerce"],
+    customer: ["ecommerce"],
+  };
+
+  // =========================
+  // 🔥 AUTH BOOTSTRAP (UPDATED)
+  // =========================
+  useEffect(() => {
+
+    const init = async () => {
+
+      const token = getToken();
+      const savedUser = getUser();
+
+      // 🚫 No session
+      if (!token || !savedUser) {
+        setScreen("login");
         return;
       }
 
-      // 🔐 STORE TOKEN + USER (CRITICAL)
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-
-      // 🚀 PASS ONLY USER (matches your App.js)
-      onLoginSuccess(data.user);
-
-    } catch (err) {
-      console.error("Login error:", err);
-
-      // 📴 Handle offline nicely
-      if (!navigator.onLine) {
-        setError("No internet connection");
-      } else {
-        setError("Server error. Try again.");
+      // ⛔ Expired token
+      if (isTokenExpired()) {
+        logout();
+        setScreen("login");
+        return;
       }
 
+      // 📴 OFFLINE → trust local
+      if (!navigator.onLine) {
+        setUser(savedUser);
+        setScreen(defaultScreen[savedUser.role] || "dashboard");
+        return;
+      }
+
+      // 🌐 ONLINE → validate
+      try {
+        const res = await fetch(`/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (!res.ok) {
+          logout();
+          setScreen("login");
+          return;
+        }
+
+        const freshUser = await res.json();
+
+        localStorage.setItem("user", JSON.stringify(freshUser));
+
+        setUser(freshUser);
+        setScreen(defaultScreen[freshUser.role] || "dashboard");
+
+      } catch {
+        // fallback to offline
+        setUser(savedUser);
+        setScreen(defaultScreen[savedUser.role] || "dashboard");
+      }
+    };
+
+    init();
+
+  }, []);
+
+  // =========================
+  // 🔐 LOGIN
+  // =========================
+  const handleLoginSuccess = (userData) => {
+    showLoader();
+
+    try {
+      setUser(userData);
+
+      const nextScreen = defaultScreen[userData.role] || "dashboard";
+      setScreen(nextScreen);
+
+      showToast("Login successful", "success");
+
+    } catch {
+      showToast("Login failed", "error");
     } finally {
-      setLoading(false);
+      hideLoader();
     }
   };
 
+  // =========================
+  // 🔓 LOGOUT
+  // =========================
+  const handleLogout = () => {
+    showLoader();
+
+    try {
+      logout();
+      setUser(null);
+      setScreen("login");
+
+      showToast("Logged out", "info");
+
+    } finally {
+      hideLoader();
+    }
+  };
+
+  // =========================
+  // 🔀 NAVIGATION
+  // =========================
+  const navigate = (target) => {
+
+    if (!user) return;
+
+    const allowed = roleAccess[user.role] || [];
+
+    if (!allowed.includes(target)) {
+      showToast("Access denied", "error");
+      return;
+    }
+
+    if (target === screen) return;
+
+    setScreen(target);
+  };
+
+  // =========================
+  // 🎯 SCREEN RENDERER
+  // =========================
+  const renderScreen = () => {
+
+    if (user) {
+      const allowed = roleAccess[user.role] || [];
+      if (!allowed.includes(screen)) {
+        return <div style={{ padding: 20 }}>Access Denied</div>;
+      }
+    }
+
+    const props = {
+      currentScreen: screen,
+      setCurrentScreen: navigate,
+      user,
+      onLogout: handleLogout,
+      api
+    };
+
+    switch (screen) {
+      case "dashboard": return <Dashboard {...props} />;
+      case "pos": return <POSScreen {...props} />;
+      case "mobile": return <MobilePOS {...props} />;
+      case "history": return <SalesHistory {...props} />;
+      case "products": return <ProductsPage {...props} />;
+      case "users": return <Users {...props} />;
+      case "mpesa": return <MpesaAgentScreen {...props} />;
+      case "cash": return <CashScreen {...props} />;
+      case "expenses": return <ExpensesScreen {...props} />;
+
+      case "ecommerce":
+        return (
+          <div style={{ height: "100%" }}>
+            <Ecommerce user={user} />
+          </div>
+        );
+
+      case "ai":
+        return (
+          <AIAssistant
+            user={user}
+            onBack={() => navigate(defaultScreen[user.role])}
+          />
+        );
+
+      default:
+        return <Dashboard {...props} />;
+    }
+  };
+
+  // =========================
+  // 🔐 LOGIN SCREEN
+  // =========================
+  if (screen === "login") {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // =========================
+  // 🧠 AI FULL SCREEN
+  // =========================
+  if (screen === "ai") {
+    return renderScreen();
+  }
+
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <>
+      <MainLayout
+        currentScreen={screen}
+        setCurrentScreen={navigate}
+        user={user}
+        onLogout={handleLogout}
+      >
+        <Suspense fallback={<div style={{ padding: 20 }}>Loading module...</div>}>
+          {renderScreen()}
+        </Suspense>
+      </MainLayout>
 
-        <h2 style={{ marginBottom: 20 }}>Phoenix POS</h2>
+      {loading && (
+        <div style={loaderStyle}>
+          Loading...
+        </div>
+      )}
 
-        {/* ERROR */}
-        {error && <div style={styles.error}>{error}</div>}
-
-        <input
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          style={styles.input}
-          disabled={loading}
-          autoFocus
-        />
-
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={styles.input}
-          disabled={loading}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleLogin();
-          }}
-        />
-
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          style={{
-            ...styles.button,
-            opacity: loading ? 0.7 : 1
-          }}
-        >
-          {loading ? "Logging in..." : "Login"}
-        </button>
-
-      </div>
-    </div>
+      {message && (
+        <div style={{
+          ...toastStyle,
+          background:
+            message.type === "error" ? "#fee2e2" :
+            message.type === "success" ? "#dcfce7" :
+            "#e5e7eb"
+        }}>
+          {message.text}
+        </div>
+      )}
+    </>
   );
 }
 
-// =========================
-// 🎨 STYLES
-// =========================
+export default App;
 
-const styles = {
+// ================= UI =================
 
-  container: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    height: "100vh",
-    background: "#F3F4F6"
-  },
+const loaderStyle = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: "rgba(0,0,0,0.3)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#fff",
+  fontSize: 20,
+  zIndex: 1000
+};
 
-  card: {
-    background: "#FFFFFF",
-    padding: "30px",
-    borderRadius: "12px",
-    border: "1px solid #eee",
-    width: "320px",
-    textAlign: "center"
-  },
-
-  input: {
-    width: "100%",
-    padding: "10px",
-    margin: "10px 0",
-    borderRadius: "6px",
-    border: "1px solid #ccc",
-    outline: "none"
-  },
-
-  button: {
-    width: "100%",
-    padding: "12px",
-    borderRadius: "8px",
-    border: "none",
-    background: "#FACC15",
-    color: "#111827",
-    fontWeight: "bold",
-    cursor: "pointer",
-    marginTop: 10
-  },
-
-  error: {
-    background: "#fee2e2",
-    color: "#991b1b",
-    padding: "10px",
-    marginBottom: "10px",
-    borderRadius: "6px"
-  }
+const toastStyle = {
+  position: "fixed",
+  bottom: 20,
+  right: 20,
+  padding: "12px 16px",
+  borderRadius: 8,
+  border: "1px solid #ddd",
+  zIndex: 1000
 };
