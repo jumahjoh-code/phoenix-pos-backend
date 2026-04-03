@@ -11,7 +11,9 @@ import colors from "../design/colors";
 import spacing from "../design/spacing";
 import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
-import { authFetch } from "../core/api/apiClient";
+
+// ✅ FIXED PATH (THIS WAS BREAKING BUILD)
+import { authFetch } from "../../core/api/apiClient";
 
 export default function Dashboard() {
 
@@ -48,24 +50,16 @@ export default function Dashboard() {
         subtext: colors.subtext
       };
 
-  // =========================
-  // 🔐 SAFE AUTH FETCH
-  // =========================
   const fetchSafe = async (endpoint) => {
     try {
       const res = await authFetch(endpoint);
-
       if (!res || !res.ok) return null;
-
       return await res.json();
     } catch {
       return null;
     }
   };
 
-  // =========================
-  // 📊 FETCH DASHBOARD DATA
-  // =========================
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -140,7 +134,6 @@ export default function Dashboard() {
       padding: spacing.lg
     }}>
 
-      {/* TOP BAR */}
       <div style={topBar}>
 
         <h2 style={{ color: colors.primary }}>Dashboard</h2>
@@ -176,7 +169,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI */}
       <div style={grid}>
         <KPICard title="Sales" value={formatKES(summary?.total_sales)} icon={<DollarSign />} />
         <KPICard title="Transactions" value={summary?.transactions || 0} icon={<ShoppingCart />} />
@@ -184,7 +176,6 @@ export default function Dashboard() {
         <KPICard title="Inventory" value={formatKES(inventoryValue)} icon={<Package />} />
       </div>
 
-      {/* AI ALERT */}
       {ai?.alerts?.length > 0 && (
         <Card>
           <h3>AI Alerts</h3>
@@ -196,7 +187,6 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* CHART */}
       <Card>
         <h3>Sales vs Profit</h3>
 
@@ -216,7 +206,6 @@ export default function Dashboard() {
         )}
       </Card>
 
-      {/* PRODUCTS */}
       <Card>
         <h3>Top Products</h3>
         {topProducts.length === 0
@@ -237,7 +226,6 @@ export default function Dashboard() {
         }
       </Card>
 
-      {/* CASHIERS */}
       <Card>
         <h3>Cashiers</h3>
 
