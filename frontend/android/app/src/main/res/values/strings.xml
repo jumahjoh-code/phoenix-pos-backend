@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Stery POS</string>
+    <string name="title_activity_main">Stery POS</string>
+    <string name="package_name">com.stery.app</string>
+    <string name="custom_url_scheme">com.stery.app</string>
+</resources>

@@ -1,0 +1,64 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* =========================
+   🖨 PRINT STYLES (COMMERCIAL)
+   ========================= */
+
+@media print {
+  /* Hide everything */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only receipt */
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+
+    background: white !important;
+    box-shadow: none !important;
+
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  /* Hide buttons during print */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Remove margins (important for thermal printers) */
+  @page {
+    margin: 0;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  /* Improve spacing for receipt look */
+  hr {
+    border: none;
+    border-top: 1px dashed #000;
+    margin: 6px 0;
+  }
+}
