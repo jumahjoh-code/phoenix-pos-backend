@@ -1,250 +1,165 @@
-import React, { useState, useEffect, Suspense, lazy } from "react";
+// src/screens/Login.js
 
-import Login from "./screens/Login";
-import Dashboard from "./screens/Dashboard";
-import POSScreen from "./screens/POSScreen";
-import SalesHistory from "./screens/SalesHistory";
-import ProductsPage from "./screens/ProductsPage";
-import Users from "./screens/Users";
+import React, { useState } from "react";
+import { API } from "config";
 
-import MpesaAgentScreen from "./screens/MpesaAgentScreen";
-import CashScreen from "./screens/CashScreen";
-import ExpensesScreen from "./screens/ExpensesScreen";
+export default function Login({ onLoginSuccess }) {
 
-import MobilePOS from "./mobile/MobilePOS";
-import AIAssistant from "./screens/AIAssistant";
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-import MainLayout from "./layout/MainLayout";
+  const handleLogin = async () => {
 
-// ✅ HOOKS
-import useToast from "./ui/hooks/useToast";
-import useLoader from "./ui/hooks/useLoader";
+    if (loading) return;
 
-// ✅ API LAYER
-import { createSale } from "./core/api/requests/salesApi";
-import { payCash } from "./core/api/requests/paymentApi";
+    setError("");
 
-// 🔥 LAZY MODULE (AFTER ALL IMPORTS)
-const Ecommerce = lazy(() => import("./screens/Ecommerce"));
-
-const defaultScreen = {
-  admin: "dashboard",
-  manager: "dashboard",
-  supervisor: "dashboard",
-  store_keeper: "products",
-  cashier: "pos",
-  sales: "mobile",
-  customer: "ecommerce",
-};
-
-function App() {
-
-  const [screen, setScreen] = useState("login");
-  const [user, setUser] = useState(null);
-
-  // ✅ GLOBAL UI
-  const { showToast, message } = useToast();
-  const { loading, showLoader, hideLoader } = useLoader();
-
-  // ✅ CENTRAL API OBJECT
-  const api = {
-    createSale,
-    payCash
-  };
-
-  const roleAccess = {
-    admin: ["dashboard","pos","mobile","history","products","users","mpesa","cash","expenses","ecommerce","ai"],
-    manager: ["dashboard","history","products","ecommerce","ai"],
-    supervisor: ["dashboard","history"],
-    store_keeper: ["products"],
-    cashier: ["pos","mobile"],
-    sales: ["mobile","ecommerce"],
-    customer: ["ecommerce"],
-  };
-
-  // 🔥 RESTORE SESSION
-  useEffect(() => {
-    try {
-      const savedUser = JSON.parse(localStorage.getItem("user"));
-
-      if (savedUser?.role) {
-        setUser(savedUser);
-        setScreen(defaultScreen[savedUser.role] || "dashboard");
-      }
-    } catch {
-      localStorage.removeItem("user");
-    }
-  }, []);
-
-  // 🔐 LOGIN
-  const handleLoginSuccess = (userData) => {
-    showLoader();
-
-    try {
-      localStorage.setItem("user", JSON.stringify(userData));
-      setUser(userData);
-
-      const nextScreen = defaultScreen[userData.role] || "dashboard";
-      setScreen(nextScreen);
-
-      showToast("Login successful", "success");
-
-    } catch {
-      showToast("Login failed", "error");
-    } finally {
-      hideLoader();
-    }
-  };
-
-  // 🔓 LOGOUT
-  const handleLogout = () => {
-    showLoader();
-
-    try {
-      localStorage.removeItem("user");
-      setUser(null);
-      setScreen("login");
-
-      showToast("Logged out", "info");
-
-    } finally {
-      hideLoader();
-    }
-  };
-
-  // 🔀 NAVIGATION
-  const navigate = (target) => {
-
-    if (!user) return;
-
-    const allowed = roleAccess[user.role] || [];
-
-    if (!allowed.includes(target)) {
-      showToast("Access denied", "error");
+    if (!username.trim() || !password.trim()) {
+      setError("Enter username and password");
       return;
     }
 
-    if (target === screen) return;
+    try {
+      setLoading(true);
 
-    setScreen(target);
-  };
+      const res = await fetch(`${API}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          username,
+          password
+        })
+      });
 
-  // 🎯 SCREEN RENDERER
-  const renderScreen = () => {
+      const data = await res.json();
 
-    if (user) {
-      const allowed = roleAccess[user.role] || [];
-      if (!allowed.includes(screen)) {
-        return <div style={{ padding: 20 }}>Access Denied</div>;
+      if (!res.ok) {
+        setError(data.detail || "Invalid login credentials");
+        return;
       }
-    }
 
-    const props = {
-      currentScreen: screen,
-      setCurrentScreen: navigate,
-      user,
-      onLogout: handleLogout,
-      api
-    };
+      // 🔐 STORE TOKEN + USER (CRITICAL)
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("user", JSON.stringify(data.user));
 
-    switch (screen) {
-      case "dashboard": return <Dashboard {...props} />;
-      case "pos": return <POSScreen {...props} />;
-      case "mobile": return <MobilePOS {...props} />;
-      case "history": return <SalesHistory {...props} />;
-      case "products": return <ProductsPage {...props} />;
-      case "users": return <Users {...props} />;
-      case "mpesa": return <MpesaAgentScreen {...props} />;
-      case "cash": return <CashScreen {...props} />;
-      case "expenses": return <ExpensesScreen {...props} />;
+      // 🚀 PASS ONLY USER (matches your App.js)
+      onLoginSuccess(data.user);
 
-      case "ecommerce":
-        return (
-          <div style={{ height: "100%" }}>
-            <Ecommerce user={user} />
-          </div>
-        );
+    } catch (err) {
+      console.error("Login error:", err);
 
-      case "ai":
-        return (
-          <AIAssistant
-            user={user}
-            onBack={() => navigate(defaultScreen[user.role])}
-          />
-        );
+      // 📴 Handle offline nicely
+      if (!navigator.onLine) {
+        setError("No internet connection");
+      } else {
+        setError("Server error. Try again.");
+      }
 
-      default:
-        return <Dashboard {...props} />;
+    } finally {
+      setLoading(false);
     }
   };
-
-  if (screen === "login") {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
-  }
-
-  if (screen === "ai") {
-    return renderScreen();
-  }
 
   return (
-    <>
-      <MainLayout
-        currentScreen={screen}
-        setCurrentScreen={navigate}
-        user={user}
-        onLogout={handleLogout}
-      >
-        <Suspense fallback={<div style={{ padding: 20 }}>Loading module...</div>}>
-          {renderScreen()}
-        </Suspense>
-      </MainLayout>
+    <div style={styles.container}>
+      <div style={styles.card}>
 
-      {loading && (
-        <div style={loaderStyle}>
-          Loading...
-        </div>
-      )}
+        <h2 style={{ marginBottom: 20 }}>Phoenix POS</h2>
 
-      {message && (
-        <div style={{
-          ...toastStyle,
-          background:
-            message.type === "error" ? "#fee2e2" :
-            message.type === "success" ? "#dcfce7" :
-            "#e5e7eb"
-        }}>
-          {message.text}
-        </div>
-      )}
-    </>
+        {/* ERROR */}
+        {error && <div style={styles.error}>{error}</div>}
+
+        <input
+          type="text"
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          style={styles.input}
+          disabled={loading}
+          autoFocus
+        />
+
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          style={styles.input}
+          disabled={loading}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleLogin();
+          }}
+        />
+
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          style={{
+            ...styles.button,
+            opacity: loading ? 0.7 : 1
+          }}
+        >
+          {loading ? "Logging in..." : "Login"}
+        </button>
+
+      </div>
+    </div>
   );
 }
 
-export default App;
+// =========================
+// 🎨 STYLES
+// =========================
 
-/* ================= UI ================= */
+const styles = {
 
-const loaderStyle = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  background: "rgba(0,0,0,0.3)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#fff",
-  fontSize: 20,
-  zIndex: 1000
-};
+  container: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    height: "100vh",
+    background: "#F3F4F6"
+  },
 
-const toastStyle = {
-  position: "fixed",
-  bottom: 20,
-  right: 20,
-  padding: "12px 16px",
-  borderRadius: 8,
-  border: "1px solid #ddd",
-  zIndex: 1000
+  card: {
+    background: "#FFFFFF",
+    padding: "30px",
+    borderRadius: "12px",
+    border: "1px solid #eee",
+    width: "320px",
+    textAlign: "center"
+  },
+
+  input: {
+    width: "100%",
+    padding: "10px",
+    margin: "10px 0",
+    borderRadius: "6px",
+    border: "1px solid #ccc",
+    outline: "none"
+  },
+
+  button: {
+    width: "100%",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#FACC15",
+    color: "#111827",
+    fontWeight: "bold",
+    cursor: "pointer",
+    marginTop: 10
+  },
+
+  error: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    padding: "10px",
+    marginBottom: "10px",
+    borderRadius: "6px"
+  }
 };
