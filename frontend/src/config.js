@@ -1,8 +1,6 @@
-const API =
-  process.env.REACT_APP_API_URL ||
-  "https://phoenix-pos-backend.onrender.com";
+const API = "";
 
-console.log("🌍 API:", API);
+console.log("🌍 API BASE:", window.location.origin);
 
 export { API };
 
