@@ -1,6 +1,6 @@
 // src/screens/Dashboard.js
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, ResponsiveContainer
@@ -12,8 +12,16 @@ import spacing from "../design/spacing";
 import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
 
-// ✅ CORRECT PATH (FIXED)
-import { authFetch } from "../core/api/apiClient";
+// ✅ SERVICES (IMPORTANT)
+import {
+  getTodaySummary,
+  getCashierPerformance
+} from "../core/services/salesService";
+
+import {
+  getDashboardSummary,
+  getRecentSales
+} from "../core/services/dashboardService";
 
 export default function Dashboard() {
 
@@ -23,8 +31,6 @@ export default function Dashboard() {
 
   const [summary, setSummary] = useState({});
   const [salesData, setSalesData] = useState([]);
-  const [topProducts, setTopProducts] = useState([]);
-  const [worstProducts, setWorstProducts] = useState([]);
   const [cashiers, setCashiers] = useState([]);
   const [inventoryValue, setInventoryValue] = useState(0);
   const [ai, setAI] = useState(null);
@@ -51,55 +57,32 @@ export default function Dashboard() {
       };
 
   // =========================
-  // 🔐 SAFE FETCH
+  // 📊 DATA LOADER (FIXED)
   // =========================
-  const fetchSafe = async (endpoint) => {
-    try {
-      const res = await authFetch(endpoint);
-
-      if (!res || !res.ok) return null;
-
-      return await res.json();
-    } catch {
-      return null;
-    }
-  };
-
-  // =========================
-  // 📊 DATA LOADER
-  // =========================
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      const results = await Promise.all([
-        fetchSafe(`/sales/summary/today?range=${filters.range}`),
-        fetchSafe(`/sales/reports/daily?range=${filters.range}`),
-        fetchSafe(`/sales/reports/top-products`),
-        fetchSafe(`/sales/reports/worst-products`),
-        fetchSafe(`/sales/cashier-performance`),
-        fetchSafe(`/api/inventory-value`),
-        fetchSafe(`/ai/dashboard`)
+      const [summaryRes, cashierRes, aiRes, salesRes] = await Promise.all([
+        getTodaySummary(),
+        getCashierPerformance(),
+        getDashboardSummary(),
+        getRecentSales()
       ]);
 
-      const [
-        summary,
-        sales,
-        top,
-        worst,
-        cashier,
-        inventory,
-        aiData
-      ] = results;
+      const summary = await summaryRes?.json();
+      const cashiers = await cashierRes?.json();
+      const aiData = await aiRes?.json();
+      const sales = await salesRes?.json();
 
       setSummary(summary || {});
-      setSalesData(Array.isArray(sales) ? sales : []);
-      setTopProducts(Array.isArray(top) ? top : []);
-      setWorstProducts(Array.isArray(worst) ? worst : []);
-      setCashiers(Array.isArray(cashier) ? cashier : []);
-      setInventoryValue(inventory?.total_inventory_value || 0);
+      setCashiers(Array.isArray(cashiers) ? cashiers : []);
       setAI(aiData || null);
+      setSalesData(Array.isArray(sales) ? sales : []);
+
+      // 🔥 FIXED INVENTORY SOURCE
+      setInventoryValue(aiData?.inventory_value || 0);
 
       setLastUpdated(new Date());
 
@@ -109,16 +92,16 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, [filters]);
+  }, [fetchData]);
 
   useEffect(() => {
     const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
-  }, [filters]);
+  }, [fetchData]);
 
   // =========================
   // UI STATES
@@ -164,15 +147,6 @@ export default function Dashboard() {
             />
           </div>
 
-          <select
-            value={filters.range}
-            onChange={(e) => setFilters({ range: e.target.value })}
-          >
-            <option value="today">Today</option>
-            <option value="week">Week</option>
-            <option value="month">Month</option>
-          </select>
-
           <div onClick={() => setDarkMode(!darkMode)} style={{ cursor: "pointer" }}>
             {darkMode ? <Sun /> : <Moon />}
           </div>
@@ -205,7 +179,7 @@ export default function Dashboard() {
 
       {/* CHART */}
       <Card>
-        <h3>Sales vs Profit</h3>
+        <h3>Recent Sales</h3>
 
         {salesData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
@@ -215,33 +189,11 @@ export default function Dashboard() {
               <YAxis />
               <Tooltip />
               <Line type="monotone" dataKey="total_sales" stroke={colors.primary} />
-              <Line type="monotone" dataKey="profit" stroke="#22C55E" />
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <p style={{ color: theme.subtext }}>No chart data available</p>
+          <p style={{ color: theme.subtext }}>No data available</p>
         )}
-      </Card>
-
-      {/* PRODUCTS */}
-      <Card>
-        <h3>Top Products</h3>
-        {topProducts.length === 0
-          ? <p style={{ color: theme.subtext }}>No data</p>
-          : topProducts.map((p, i) => (
-              <Row key={i} name={p.name} value={formatKES(p.quantity)} />
-            ))
-        }
-      </Card>
-
-      <Card>
-        <h3>Worst Products</h3>
-        {worstProducts.length === 0
-          ? <p style={{ color: theme.subtext }}>No data</p>
-          : worstProducts.map((p, i) => (
-              <Row key={i} name={p.name} value={formatKES(p.quantity)} danger />
-            ))
-        }
       </Card>
 
       {/* CASHIERS */}
@@ -313,18 +265,3 @@ const grid = {
   gap: spacing.lg,
   marginBottom: spacing.lg
 };
-
-function Row({ name, value, danger }) {
-  return (
-    <div style={{
-      display: "flex",
-      justifyContent: "space-between",
-      marginTop: 8
-    }}>
-      <span>{name}</span>
-      <span style={{ color: danger ? colors.danger : colors.primary }}>
-        {value}
-      </span>
-    </div>
-  );
-}
