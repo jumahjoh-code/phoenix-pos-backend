@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 
 from app.core.database import Base, engine
 
@@ -17,8 +20,6 @@ from app.models import (
     supplier,
     purchase,
     purchase_item,
-
-    # 🔥 NEW: LEDGER MODEL
     ledger
 )
 
@@ -43,7 +44,7 @@ from app.routers.payment_router import router as payment_router
 # M-Pesa
 from app.routers.mpesa_router import router as mpesa_router
 
-# 🔥 NEW: LEDGER ROUTER (CRITICAL)
+# Ledger
 from app.routers.ledger_router import router as ledger_router
 
 
@@ -61,7 +62,7 @@ app = FastAPI(
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ Restrict in production
+    allow_origins=["*"],  # tighten later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,24 +98,31 @@ app.include_router(payment_router)
 # M-Pesa
 app.include_router(mpesa_router)
 
-# 🔥 LEDGER (MOST IMPORTANT)
+# Ledger
 app.include_router(ledger_router)
 
 
 # =========================
-# HEALTH CHECK / ROOT
+# SERVE FRONTEND (REACT BUILD)
 # =========================
-@app.get("/")
-def root():
-    return {
-        "message": "Phoenix POS Backend Running",
-        "version": "2.0.0",
-        "modules": [
-            "products",
-            "sales",
-            "inventory",
-            "payments",
-            "mpesa",
-            "ledger"
-        ]
-    }
+
+frontend_path = os.path.join(os.getcwd(), "frontend", "build")
+
+if os.path.exists(frontend_path):
+
+    # Static files (JS, CSS)
+    app.mount(
+        "/static",
+        StaticFiles(directory=os.path.join(frontend_path, "static")),
+        name="static"
+    )
+
+    # Root → React app
+    @app.get("/")
+    async def serve_react():
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+
+    # Catch-all → React Router support
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        return FileResponse(os.path.join(frontend_path, "index.html"))
