@@ -22,15 +22,17 @@ export default function Login({ onLoginSuccess }) {
     try {
       setLoading(true);
 
+      // ✅ FIX: Use form-urlencoded
+      const formData = new URLSearchParams();
+      formData.append("username", username);
+      formData.append("password", password);
+
       const res = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/x-www-form-urlencoded"
         },
-        body: JSON.stringify({
-          username,
-          password
-        })
+        body: formData
       });
 
       let data = {};
@@ -50,7 +52,7 @@ export default function Login({ onLoginSuccess }) {
       // 🔐 STORE AUTH DATA
       // =========================
       if (data.access_token) {
-        localStorage.setItem("token", data.access_token);
+        localStorage.setItem("access_token", data.access_token);
       }
 
       localStorage.setItem("user", JSON.stringify(data));
