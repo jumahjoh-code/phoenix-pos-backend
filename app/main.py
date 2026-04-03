@@ -96,14 +96,14 @@ frontend_path = os.path.abspath(
 # =========================
 if os.path.exists(frontend_path):
 
-    # Static files (JS/CSS)
+    # Static files (JS, CSS)
     app.mount(
         "/static",
         StaticFiles(directory=os.path.join(frontend_path, "static")),
         name="static"
     )
 
-    # Manifest (fix PWA error)
+    # Manifest
     @app.get("/manifest.json")
     async def manifest():
         return FileResponse(
@@ -116,12 +116,21 @@ if os.path.exists(frontend_path):
     async def favicon():
         return FileResponse(os.path.join(frontend_path, "favicon.ico"))
 
-    # Root → React app
+    # Logos (FIXED)
+    @app.get("/logo192.png")
+    async def logo192():
+        return FileResponse(os.path.join(frontend_path, "logo192.png"))
+
+    @app.get("/logo512.png")
+    async def logo512():
+        return FileResponse(os.path.join(frontend_path, "logo512.png"))
+
+    # Root → React
     @app.get("/")
     async def serve_react():
         return FileResponse(os.path.join(frontend_path, "index.html"))
 
-    # Catch-all (React Router support)
+    # Catch-all → React Router
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
         return FileResponse(os.path.join(frontend_path, "index.html"))
