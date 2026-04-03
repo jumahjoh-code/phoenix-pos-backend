@@ -12,7 +12,7 @@ import spacing from "../design/spacing";
 import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
 
-// ✅ FIXED PATH (THIS WAS BREAKING BUILD)
+// ✅ CORRECT PATH (FIXED)
 import { authFetch } from "../../core/api/apiClient";
 
 export default function Dashboard() {
@@ -50,20 +50,38 @@ export default function Dashboard() {
         subtext: colors.subtext
       };
 
+  // =========================
+  // 🔐 SAFE FETCH
+  // =========================
   const fetchSafe = async (endpoint) => {
     try {
       const res = await authFetch(endpoint);
+
       if (!res || !res.ok) return null;
+
       return await res.json();
     } catch {
       return null;
     }
   };
 
+  // =========================
+  // 📊 DATA LOADER
+  // =========================
   const fetchData = async () => {
     try {
       setLoading(true);
       setError("");
+
+      const results = await Promise.all([
+        fetchSafe(`/sales/summary/today?range=${filters.range}`),
+        fetchSafe(`/sales/reports/daily?range=${filters.range}`),
+        fetchSafe(`/sales/reports/top-products`),
+        fetchSafe(`/sales/reports/worst-products`),
+        fetchSafe(`/sales/cashier-performance`),
+        fetchSafe(`/api/inventory-value`),
+        fetchSafe(`/ai/dashboard`)
+      ]);
 
       const [
         summary,
@@ -73,15 +91,7 @@ export default function Dashboard() {
         cashier,
         inventory,
         aiData
-      ] = await Promise.all([
-        fetchSafe(`/sales/summary/today?range=${filters.range}`),
-        fetchSafe(`/sales/reports/daily?range=${filters.range}`),
-        fetchSafe(`/sales/reports/top-products`),
-        fetchSafe(`/sales/reports/worst-products`),
-        fetchSafe(`/sales/cashier-performance`),
-        fetchSafe(`/api/inventory-value`),
-        fetchSafe(`/ai/dashboard`)
-      ]);
+      ] = results;
 
       setSummary(summary || {});
       setSalesData(Array.isArray(sales) ? sales : []);
@@ -94,8 +104,8 @@ export default function Dashboard() {
       setLastUpdated(new Date());
 
     } catch (err) {
-      console.error(err);
-      setError("Dashboard failed");
+      console.error("Dashboard error:", err);
+      setError("Failed to load dashboard");
     } finally {
       setLoading(false);
     }
@@ -110,6 +120,9 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [filters]);
 
+  // =========================
+  // UI STATES
+  // =========================
   if (loading) {
     return <div style={{ padding: spacing.lg }}>Loading dashboard...</div>;
   }
@@ -134,6 +147,7 @@ export default function Dashboard() {
       padding: spacing.lg
     }}>
 
+      {/* TOP BAR */}
       <div style={topBar}>
 
         <h2 style={{ color: colors.primary }}>Dashboard</h2>
@@ -164,11 +178,12 @@ export default function Dashboard() {
           </div>
 
           <small style={{ color: theme.subtext }}>
-            Updated: {lastUpdated?.toLocaleTimeString()}
+            Updated: {lastUpdated?.toLocaleTimeString() || "-"}
           </small>
         </div>
       </div>
 
+      {/* KPI */}
       <div style={grid}>
         <KPICard title="Sales" value={formatKES(summary?.total_sales)} icon={<DollarSign />} />
         <KPICard title="Transactions" value={summary?.transactions || 0} icon={<ShoppingCart />} />
@@ -176,6 +191,7 @@ export default function Dashboard() {
         <KPICard title="Inventory" value={formatKES(inventoryValue)} icon={<Package />} />
       </div>
 
+      {/* AI ALERT */}
       {ai?.alerts?.length > 0 && (
         <Card>
           <h3>AI Alerts</h3>
@@ -187,6 +203,7 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* CHART */}
       <Card>
         <h3>Sales vs Profit</h3>
 
@@ -206,6 +223,7 @@ export default function Dashboard() {
         )}
       </Card>
 
+      {/* PRODUCTS */}
       <Card>
         <h3>Top Products</h3>
         {topProducts.length === 0
@@ -226,6 +244,7 @@ export default function Dashboard() {
         }
       </Card>
 
+      {/* CASHIERS */}
       <Card>
         <h3>Cashiers</h3>
 
