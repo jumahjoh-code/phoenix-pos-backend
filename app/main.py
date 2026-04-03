@@ -7,7 +7,7 @@ import os
 from app.core.database import Base, engine
 
 # =========================
-# IMPORT MODELS (REGISTER TABLES)
+# IMPORT MODELS
 # =========================
 from app.models import (
     product,
@@ -33,28 +33,17 @@ from app.routers.inventory_router import router as inventory_router
 from app.routers.supplier_router import router as supplier_router
 from app.routers.purchase_router import router as purchase_router
 from app.routers.dashboard_router import router as dashboard_router
-
-# Users & Auth
 from app.routers.user_router import router as user_router
 from app.routers.auth_router import router as auth_router
-
-# Payments
 from app.routers.payment_router import router as payment_router
-
-# M-Pesa
 from app.routers.mpesa_router import router as mpesa_router
-
-# Ledger
 from app.routers.ledger_router import router as ledger_router
 
 
 # =========================
 # APP INIT
 # =========================
-app = FastAPI(
-    title="Phoenix POS",
-    version="2.0.0"
-)
+app = FastAPI(title="Phoenix POS", version="2.0.0")
 
 
 # =========================
@@ -62,7 +51,7 @@ app = FastAPI(
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,42 +76,52 @@ app.include_router(inventory_router)
 app.include_router(supplier_router)
 app.include_router(purchase_router)
 app.include_router(dashboard_router)
-
-# Users & Auth
 app.include_router(user_router)
 app.include_router(auth_router)
-
-# Payments
 app.include_router(payment_router)
-
-# M-Pesa
 app.include_router(mpesa_router)
-
-# Ledger
 app.include_router(ledger_router)
 
 
 # =========================
-# SERVE FRONTEND (REACT BUILD)
+# FRONTEND PATH (FIXED)
 # =========================
+frontend_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+)
 
-frontend_path = os.path.join(os.getcwd(), "frontend", "build")
 
+# =========================
+# SERVE FRONTEND
+# =========================
 if os.path.exists(frontend_path):
 
-    # Static files (JS, CSS)
+    # Static (JS/CSS)
     app.mount(
         "/static",
         StaticFiles(directory=os.path.join(frontend_path, "static")),
         name="static"
     )
 
-    # Root → React app
+    # 🔥 Manifest fix
+    @app.get("/manifest.json")
+    async def manifest():
+        return FileResponse(
+            os.path.join(frontend_path, "manifest.json"),
+            media_type="application/json"
+        )
+
+    # 🔥 Favicon fix (optional)
+    @app.get("/favicon.ico")
+    async def favicon():
+        return FileResponse(os.path.join(frontend_path, "favicon.ico"))
+
+    # Root
     @app.get("/")
     async def serve_react():
         return FileResponse(os.path.join(frontend_path, "index.html"))
 
-    # Catch-all → React Router support
+    # Catch-all (MUST BE LAST)
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
         return FileResponse(os.path.join(frontend_path, "index.html"))
