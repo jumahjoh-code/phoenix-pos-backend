@@ -24,7 +24,6 @@ export default function Login({ onLoginSuccess }) {
     try {
       setLoading(true);
 
-      // ✅ JSON LOGIN (MATCHES FASTAPI)
       const res = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: {
@@ -45,24 +44,37 @@ export default function Login({ onLoginSuccess }) {
       }
 
       if (!res.ok) {
-        setError(data.detail || "Login failed");
+        // ✅ safer error handling (prevents React crash)
+        const message =
+          typeof data.detail === "string"
+            ? data.detail
+            : data?.detail?.[0]?.msg || "Login failed";
+
+        setError(message);
         return;
       }
 
       // =========================
-      // 🔐 STORE AUTH DATA
+      // 🔐 STORE AUTH DATA (UPDATED)
       // =========================
       localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("refresh_token", data.refresh_token); // ✅ NEW
       localStorage.setItem("user", JSON.stringify(data.user));
 
       // =========================
-      // 🚀 SUCCESS CALLBACK
+      // 🚀 SUCCESS
       // =========================
       onLoginSuccess(data.user);
 
     } catch (err) {
       console.error(err);
-      setError("Server error. Try again.");
+
+      if (!navigator.onLine) {
+        setError("No internet connection");
+      } else {
+        setError("Server error. Try again.");
+      }
+
     } finally {
       setLoading(false);
     }
@@ -74,7 +86,6 @@ export default function Login({ onLoginSuccess }) {
 
         <h2 style={{ marginBottom: 20 }}>Phoenix POS</h2>
 
-        {/* ERROR */}
         {error && <div style={styles.error}>{error}</div>}
 
         <input
@@ -101,11 +112,11 @@ export default function Login({ onLoginSuccess }) {
 
         <button
           onClick={handleLogin}
+          disabled={loading}
           style={{
             ...styles.button,
             opacity: loading ? 0.7 : 1
           }}
-          disabled={loading}
         >
           {loading ? "Logging in..." : "Login"}
         </button>
