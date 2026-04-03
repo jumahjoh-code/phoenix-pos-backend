@@ -84,7 +84,7 @@ app.include_router(ledger_router)
 
 
 # =========================
-# FRONTEND PATH (FIXED)
+# FRONTEND PATH (RENDER SAFE)
 # =========================
 frontend_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
@@ -96,14 +96,14 @@ frontend_path = os.path.abspath(
 # =========================
 if os.path.exists(frontend_path):
 
-    # Static (JS/CSS)
+    # Static files (JS/CSS)
     app.mount(
         "/static",
         StaticFiles(directory=os.path.join(frontend_path, "static")),
         name="static"
     )
 
-    # 🔥 Manifest fix
+    # Manifest (fix PWA error)
     @app.get("/manifest.json")
     async def manifest():
         return FileResponse(
@@ -111,17 +111,17 @@ if os.path.exists(frontend_path):
             media_type="application/json"
         )
 
-    # 🔥 Favicon fix (optional)
+    # Favicon
     @app.get("/favicon.ico")
     async def favicon():
         return FileResponse(os.path.join(frontend_path, "favicon.ico"))
 
-    # Root
+    # Root → React app
     @app.get("/")
     async def serve_react():
         return FileResponse(os.path.join(frontend_path, "index.html"))
 
-    # Catch-all (MUST BE LAST)
+    # Catch-all (React Router support)
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
         return FileResponse(os.path.join(frontend_path, "index.html"))
