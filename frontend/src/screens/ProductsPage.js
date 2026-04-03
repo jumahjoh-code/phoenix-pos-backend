@@ -1,5 +1,13 @@
+// src/screens/ProductsPage.js
+
 import React, { useEffect, useState } from "react";
-import { API } from "config";
+
+// ✅ SERVICES (FIXED)
+import {
+  getProducts,
+  createProduct,
+  deleteProduct
+} from "../core/services/productService";
 
 export default function ProductsPage() {
 
@@ -14,9 +22,6 @@ export default function ProductsPage() {
     stock_quantity: ""
   });
 
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({});
-
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -26,16 +31,19 @@ export default function ProductsPage() {
   const parseNumber = (val) => Number(val || 0);
   const formatKES = (val) => "KES " + Number(val || 0).toLocaleString();
 
+  // =========================
+  // FETCH PRODUCTS (FIXED)
+  // =========================
   const fetchProducts = async () => {
     try {
       setError(null);
       setLoading(true);
 
-      const res = await fetch(`${API}/products/`);
+      const res = await getProducts();
       const data = await res.json();
 
-      setProducts(data);
-      setFiltered(data);
+      setProducts(data || []);
+      setFiltered(data || []);
 
     } catch {
       setError("Failed to load products");
@@ -56,6 +64,9 @@ export default function ProductsPage() {
     );
   }, [search, products]);
 
+  // =========================
+  // ADD PRODUCT (FIXED)
+  // =========================
   const handleAdd = async () => {
 
     if (actionLoading) return;
@@ -71,18 +82,14 @@ export default function ProductsPage() {
     setActionLoading(true);
 
     try {
-      const res = await fetch(`${API}/products/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          retail_price: parseNumber(form.retail_price),
-          cost_price: parseNumber(form.cost_price),
-          stock_quantity: parseNumber(form.stock_quantity)
-        })
+      const res = await createProduct({
+        ...form,
+        retail_price: parseNumber(form.retail_price),
+        cost_price: parseNumber(form.cost_price),
+        stock_quantity: parseNumber(form.stock_quantity)
       });
 
-      if (!res.ok) {
+      if (!res || !res.ok) {
         setError("Failed to add product");
         return;
       }
@@ -105,6 +112,9 @@ export default function ProductsPage() {
     }
   };
 
+  // =========================
+  // DELETE PRODUCT (FIXED)
+  // =========================
   const handleDelete = async (id) => {
 
     if (actionLoading) return;
@@ -114,9 +124,16 @@ export default function ProductsPage() {
     setActionLoading(true);
 
     try {
-      await fetch(`${API}/products/${id}`, { method: "DELETE" });
+      const res = await deleteProduct(id);
+
+      if (!res || !res.ok) {
+        setError("Delete failed");
+        return;
+      }
+
       setSuccess("Deleted");
       fetchProducts();
+
     } catch {
       setError("Delete failed");
     } finally {
@@ -229,66 +246,3 @@ export default function ProductsPage() {
     </div>
   );
 }
-
-/* ================= STYLES ================= */
-
-const styles = {
-  page: {
-    padding: 20,
-    maxWidth: 900
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 10
-  },
-  msg: {
-    padding: 10
-  },
-  success: {
-    background: "#dcfce7",
-    color: "#166534",
-    padding: 10,
-    marginBottom: 10,
-    borderRadius: 6
-  },
-  card: {
-    padding: 15,
-    border: "1px solid #eee",
-    borderRadius: 8,
-    background: "#fff",
-    marginBottom: 15
-  },
-  input: {
-    padding: 8,
-    border: "1px solid #ccc",
-    borderRadius: 6,
-    marginRight: 5,
-    marginBottom: 5
-  },
-  form: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 5
-  },
-  primaryBtn: {
-    padding: 10,
-    background: "#facc15",
-    border: "none",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontWeight: "bold"
-  },
-  dangerBtn: {
-    padding: 6,
-    background: "#dc2626",
-    color: "#fff",
-    border: "none",
-    borderRadius: 6,
-    cursor: "pointer"
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse"
-  }
-};
