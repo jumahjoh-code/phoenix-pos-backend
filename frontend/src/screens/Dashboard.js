@@ -13,7 +13,7 @@ import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
 
 // ✅ CORRECT PATH (FIXED)
-import { authFetch } from "../../core/api/apiClient";
+import { authFetch } from "../core/api/apiClient";
 
 export default function Dashboard() {
 
