@@ -1,4 +1,4 @@
-import api from "../core/api/apiClient";
+import { authFetch } from "../core/api/apiClient";
 
 // =========================
 // 🧾 COMPLETE SALE
@@ -7,7 +7,7 @@ export const completeSale = async (cartItems, total) => {
   try {
     const payload = {
       items: cartItems.map((item) => ({
-        product_id: item.id,        // ✅ must be snake_case
+        product_id: item.id,
         quantity: Number(item.quantity),
         price: Number(item.price),
       })),
@@ -16,13 +16,18 @@ export const completeSale = async (cartItems, total) => {
 
     console.log("SALE PAYLOAD:", payload);
 
-    const response = await api.post("/api/sales/", payload);
+    const res = await authFetch("/api/sales/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
 
-    console.log("SALE RESPONSE:", response.data);
+    const data = await res.json();
 
-    return response.data;
+    console.log("SALE RESPONSE:", data);
+
+    return data;
   } catch (error) {
-    console.error("❌ SALE ERROR:", error.response?.data || error.message);
+    console.error("❌ SALE ERROR:", error);
     return null;
   }
 };

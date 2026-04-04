@@ -1,4 +1,4 @@
-import api from "../core/api/apiClient";
+import { authFetch } from "../core/api/apiClient";
 
 // =========================
 // 💰 PROCESS CASH PAYMENT
@@ -6,20 +6,25 @@ import api from "../core/api/apiClient";
 export const processCashPayment = async (saleId, amount) => {
   try {
     const payload = {
-      sale_id: saleId,          // ✅ REQUIRED (must come from successful sale)
-      amount: Number(amount),  // ✅ ensure number
+      sale_id: saleId,
+      amount: Number(amount),
       method: "cash",
     };
 
     console.log("PAYMENT PAYLOAD:", payload);
 
-    const response = await api.post("/api/payments/cash", payload);
+    const res = await authFetch("/api/payments/cash", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
 
-    console.log("PAYMENT RESPONSE:", response.data);
+    const data = await res.json();
 
-    return response.data;
+    console.log("PAYMENT RESPONSE:", data);
+
+    return data;
   } catch (error) {
-    console.error("❌ PAYMENT ERROR:", error.response?.data || error.message);
+    console.error("❌ PAYMENT ERROR:", error);
     return null;
   }
 };
