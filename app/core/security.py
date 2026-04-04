@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from jose import jwt, JWTError
 
 # 🔐 CONFIG
-SECRET_KEY = "your_super_secret_key"
+SECRET_KEY = "phoenix_pos_super_secret_2026"
 ALGORITHM = "HS256"
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30

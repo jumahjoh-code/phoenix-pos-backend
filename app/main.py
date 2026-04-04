@@ -1,12 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 
 from app.core.database import Base, engine
-
-# 🔥 ADD THIS
 from app.core.init_admin import create_default_admin
 
 # =========================
@@ -67,8 +65,6 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
-
-    # 🔥 THIS FIXES YOUR LOGIN
     create_default_admin()
 
 
@@ -134,8 +130,21 @@ if os.path.exists(frontend_path):
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
 
-        # ✅ DO NOT override API routes
-        if full_path.startswith("api") or full_path.startswith("auth"):
-            return {"detail": "Not Found"}
+        # 🚫 PROTECT BACKEND ROUTES
+        if full_path.startswith((
+            "api",
+            "auth",
+            "users",
+            "products",
+            "sales",
+            "inventory",
+            "suppliers",
+            "purchases",
+            "dashboard",
+            "payments",
+            "mpesa",
+            "ledger"
+        )):
+            raise HTTPException(status_code=404, detail="Not Found")
 
         return FileResponse(os.path.join(frontend_path, "index.html"))
