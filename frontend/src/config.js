@@ -1,16 +1,14 @@
-const API = "";
+const API = "https://phoenix-pos-backend-3.onrender.com";
 
-console.log("🌍 API BASE:", window.location.origin);
+console.log("🌍 API BASE:", API);
 
 export { API };
 
 export const getAuthHeaders = () => {
-  const user = JSON.parse(localStorage.getItem("user"));
+  const token = localStorage.getItem("access_token");
 
   return {
     "Content-Type": "application/json",
-    Authorization: user?.access_token
-      ? `Bearer ${user.access_token}`
-      : ""
+    Authorization: token ? `Bearer ${token}` : ""
   };
 };
