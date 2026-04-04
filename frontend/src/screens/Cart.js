@@ -14,7 +14,9 @@ export default function Cart({ cart, setCart }) {
   const formatKES = (value) =>
     "KES " + Number(value || 0).toLocaleString();
 
-  // 🔥 FIXED QTY HANDLER (NEVER BELOW 1)
+  // =========================
+  // 🔥 UPDATE QUANTITY
+  // =========================
   const updateQty = (id, delta) => {
     if (processing) return;
 
@@ -47,9 +49,11 @@ export default function Cart({ cart, setCart }) {
     setCart(prev => prev.filter(item => item.id !== id));
   };
 
-  // 🔥 ALWAYS USE retail_price
+  // =========================
+  // 💰 TOTALS
+  // =========================
   const total = cart.reduce((sum, item) => {
-    const price = Number(item.retail_price || 0);
+    const price = Number(item.retail_price || item.price || 0);
     const qty = Number(item.quantity || 1);
 
     if (isNaN(price) || isNaN(qty)) return sum;
@@ -65,7 +69,9 @@ export default function Cart({ cart, setCart }) {
 
   const profit = total - totalCost;
 
-  // 🔥 CLEAN SALE HANDLER
+  // =========================
+  // 🔥 PAYMENT SUCCESS HANDLER (FIXED)
+  // =========================
   const handlePaymentSuccess = async () => {
     try {
       setProcessing(true);
@@ -74,16 +80,29 @@ export default function Cart({ cart, setCart }) {
         throw new Error("Cart is empty");
       }
 
-      // 🔥 FORCE CLEAN DATA BEFORE SENDING
-      const cleanCart = cart.map(item => ({
-        ...item,
-        quantity: Math.max(1, Number(item.quantity)),
-        retail_price: Number(item.retail_price)
-      }));
+      // ✅ CLEAN + MATCH BACKEND STRUCTURE
+      const cleanCart = cart.map(item => {
+        const product_id = item.product_id ?? item.id;
+
+        if (!product_id) {
+          console.error("❌ INVALID ITEM:", item);
+          throw new Error("Invalid product_id in cart");
+        }
+
+        return {
+          product_id: Number(product_id),
+          quantity: Math.max(1, Number(item.quantity)),
+          price: Number(item.retail_price || item.price || 0),
+          cost_price: Number(item.cost_price || 0)
+        };
+      });
+
+      console.log("🧾 CLEAN CART:", cleanCart);
 
       const result = await createSale(cleanCart, user);
 
       if (!result || !(result.id || result.sale_id)) {
+        console.error("❌ INVALID RESPONSE:", result);
         throw new Error("Invalid response from server");
       }
 
@@ -109,7 +128,7 @@ export default function Cart({ cart, setCart }) {
         <p style={{ color: "#6B7280" }}>No items</p>
       ) : (
         cart.map(item => {
-          const price = Number(item.retail_price || 0);
+          const price = Number(item.retail_price || item.price || 0);
           const qty = Number(item.quantity || 1);
 
           return (
