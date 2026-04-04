@@ -13,7 +13,7 @@ export const processCashPayment = async (saleId, amount) => {
 
     console.log("PAYMENT PAYLOAD:", payload);
 
-    const res = await authFetch("/api/payments/cash", {
+    const res = await authFetch("/payments/cash", {
       method: "POST",
       body: JSON.stringify(payload),
     });

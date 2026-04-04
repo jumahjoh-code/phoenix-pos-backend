@@ -16,7 +16,7 @@ export const completeSale = async (cartItems, total) => {
 
     console.log("SALE PAYLOAD:", payload);
 
-    const res = await authFetch("/api/sales/", {
+    const res = await authFetch("/sales/", {
       method: "POST",
       body: JSON.stringify(payload),
     });
