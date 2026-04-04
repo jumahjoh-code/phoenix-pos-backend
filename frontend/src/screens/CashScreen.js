@@ -1,15 +1,5 @@
 import React, { useState, useEffect } from "react";
-
-// =========================
-// 🌍 SMART API DETECTION
-// =========================
-const host = window.location.hostname;
-
-const API =
-  window.location.hostname === "localhost" ||
-  window.location.hostname === "127.0.0.1"
-    ? "http://localhost:8001"
-    : "https://phoenix-pos-backend.onrender.com";
+import { authFetch } from "../core/api/apiClient";
 
 export default function CashScreen() {
 
@@ -24,15 +14,8 @@ export default function CashScreen() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  const formatKES = (val) => "KES " + Number(val || 0).toLocaleString();
-
-  // =========================
-  // 🔐 AUTH HEADER
-  // =========================
-  const getHeaders = () => ({
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
-  });
+  const formatKES = (val) =>
+    "KES " + Number(val || 0).toLocaleString();
 
   // =========================
   // 📥 LOAD DATA
@@ -41,10 +24,7 @@ export default function CashScreen() {
     try {
       setError(null);
 
-      const res = await fetch(`${API}/ledger/cash`, {
-        headers: getHeaders()
-      });
-
+      const res = await authFetch("/ledger/cash");
       const data = await res.json();
 
       if (!res.ok) {
@@ -106,9 +86,8 @@ export default function CashScreen() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API}/ledger/cash`, {
+      const res = await authFetch("/ledger/cash", {
         method: "POST",
-        headers: getHeaders(),
         body: JSON.stringify({
           type,
           amount: parsedAmount,
@@ -123,7 +102,12 @@ export default function CashScreen() {
         return;
       }
 
-      setSuccess("✅ Recorded successfully");
+      // ✅ HANDLE OFFLINE MODE
+      if (data?.message?.includes("offline")) {
+        setSuccess("Saved offline. Will sync automatically.");
+      } else {
+        setSuccess("✅ Recorded successfully");
+      }
 
       setAmount("");
       setReason("");
@@ -143,21 +127,24 @@ export default function CashScreen() {
   // =========================
   let runningBalance = balance;
 
-  const computedHistory = [...history].reverse().map(item => {
-    if (item.type === "in") {
-      runningBalance -= item.amount;
-    } else {
-      runningBalance += item.amount;
-    }
+  const computedHistory = [...history]
+    .reverse()
+    .map(item => {
+      if (item.type === "in") {
+        runningBalance -= item.amount;
+      } else {
+        runningBalance += item.amount;
+      }
 
-    return {
-      ...item,
-      after:
-        item.type === "in"
-          ? runningBalance + item.amount
-          : runningBalance - item.amount
-    };
-  }).reverse();
+      return {
+        ...item,
+        after:
+          item.type === "in"
+            ? runningBalance + item.amount
+            : runningBalance - item.amount
+      };
+    })
+    .reverse();
 
   return (
     <div style={{ padding: 20, maxWidth: 900, margin: "auto" }}>
