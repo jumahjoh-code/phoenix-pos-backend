@@ -1,5 +1,3 @@
-// src/screens/Dashboard.js
-
 import { useEffect, useState, useCallback } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
@@ -12,7 +10,7 @@ import spacing from "../design/spacing";
 import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
 
-// ✅ SERVICES (IMPORTANT)
+// ✅ SERVICES
 import {
   getTodaySummary,
   getCashierPerformance
@@ -57,7 +55,7 @@ export default function Dashboard() {
       };
 
   // =========================
-  // 📊 DATA LOADER (FIXED)
+  // 📊 DATA LOADER
   // =========================
   const fetchData = useCallback(async () => {
     try {
@@ -81,9 +79,7 @@ export default function Dashboard() {
       setAI(aiData || null);
       setSalesData(Array.isArray(sales) ? sales : []);
 
-      // 🔥 FIXED INVENTORY SOURCE
       setInventoryValue(aiData?.inventory_value || 0);
-
       setLastUpdated(new Date());
 
     } catch (err) {

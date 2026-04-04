@@ -1,7 +1,7 @@
 // src/pages/Login.js
 
 import React, { useState } from "react";
-import { API } from "config";
+import { api } from "../services/api";
 
 export default function Login({ onLoginSuccess }) {
 
@@ -24,41 +24,16 @@ export default function Login({ onLoginSuccess }) {
     try {
       setLoading(true);
 
-      const res = await fetch(`${API}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          username,
-          password
-        })
+      const data = await api.post("/auth/login", {
+        username,
+        password
       });
 
-      let data = {};
-
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
-      }
-
-      if (!res.ok) {
-        // ✅ safer error handling (prevents React crash)
-        const message =
-          typeof data.detail === "string"
-            ? data.detail
-            : data?.detail?.[0]?.msg || "Login failed";
-
-        setError(message);
-        return;
-      }
-
       // =========================
-      // 🔐 STORE AUTH DATA (UPDATED)
+      // 🔐 STORE AUTH DATA
       // =========================
       localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("refresh_token", data.refresh_token); // ✅ NEW
+      localStorage.setItem("refresh_token", data.refresh_token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
       // =========================
@@ -72,7 +47,7 @@ export default function Login({ onLoginSuccess }) {
       if (!navigator.onLine) {
         setError("No internet connection");
       } else {
-        setError("Server error. Try again.");
+        setError(err.message || "Login failed");
       }
 
     } finally {

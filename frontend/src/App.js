@@ -1,5 +1,3 @@
-// src/App.js
-
 import React, { useState, useEffect, Suspense, lazy } from "react";
 
 import Login from "./screens/Login";
@@ -27,10 +25,16 @@ import { createSale } from "./core/api/requests/salesApi";
 import { payCash } from "./core/api/requests/paymentApi";
 
 // 🔐 AUTH
-import { getUser, getToken, logout, isTokenExpired } from "./auth/auth";
+import { getUser, getToken, logout } from "./auth/auth";
+
+// ✅ 🔄 SYNC SYSTEM (AUTO INIT)
+import "./services/networkService";
 
 const Ecommerce = lazy(() => import("./screens/Ecommerce"));
 
+// =========================
+// 🎯 DEFAULT SCREENS
+// =========================
 const defaultScreen = {
   admin: "dashboard",
   manager: "dashboard",
@@ -39,6 +43,19 @@ const defaultScreen = {
   cashier: "pos",
   sales: "mobile",
   customer: "ecommerce",
+};
+
+// =========================
+// 🔐 ROLE ACCESS CONTROL
+// =========================
+const roleAccess = {
+  admin: ["dashboard","pos","mobile","history","products","users","mpesa","cash","expenses","ecommerce","ai"],
+  manager: ["dashboard","history","products","ecommerce","ai"],
+  supervisor: ["dashboard","history"],
+  store_keeper: ["products"],
+  cashier: ["pos","mobile"],
+  sales: ["mobile","ecommerce"],
+  customer: ["ecommerce"],
 };
 
 function App() {
@@ -54,76 +71,20 @@ function App() {
     payCash
   };
 
-  const roleAccess = {
-    admin: ["dashboard","pos","mobile","history","products","users","mpesa","cash","expenses","ecommerce","ai"],
-    manager: ["dashboard","history","products","ecommerce","ai"],
-    supervisor: ["dashboard","history"],
-    store_keeper: ["products"],
-    cashier: ["pos","mobile"],
-    sales: ["mobile","ecommerce"],
-    customer: ["ecommerce"],
-  };
-
   // =========================
-  // 🔥 AUTH BOOTSTRAP (UPDATED)
+  // 🔥 AUTH BOOTSTRAP
   // =========================
   useEffect(() => {
+    const token = getToken();
+    const savedUser = getUser();
 
-    const init = async () => {
+    if (!token || !savedUser) {
+      setScreen("login");
+      return;
+    }
 
-      const token = getToken();
-      const savedUser = getUser();
-
-      // 🚫 No session
-      if (!token || !savedUser) {
-        setScreen("login");
-        return;
-      }
-
-      // ⛔ Expired token
-      if (isTokenExpired()) {
-        logout();
-        setScreen("login");
-        return;
-      }
-
-      // 📴 OFFLINE → trust local
-      if (!navigator.onLine) {
-        setUser(savedUser);
-        setScreen(defaultScreen[savedUser.role] || "dashboard");
-        return;
-      }
-
-      // 🌐 ONLINE → validate
-      try {
-        const res = await fetch(`/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-
-        if (!res.ok) {
-          logout();
-          setScreen("login");
-          return;
-        }
-
-        const freshUser = await res.json();
-
-        localStorage.setItem("user", JSON.stringify(freshUser));
-
-        setUser(freshUser);
-        setScreen(defaultScreen[freshUser.role] || "dashboard");
-
-      } catch {
-        // fallback to offline
-        setUser(savedUser);
-        setScreen(defaultScreen[savedUser.role] || "dashboard");
-      }
-    };
-
-    init();
-
+    setUser(savedUser);
+    setScreen(defaultScreen[savedUser.role] || "dashboard");
   }, []);
 
   // =========================
@@ -134,12 +95,8 @@ function App() {
 
     try {
       setUser(userData);
-
-      const nextScreen = defaultScreen[userData.role] || "dashboard";
-      setScreen(nextScreen);
-
+      setScreen(defaultScreen[userData.role] || "dashboard");
       showToast("Login successful", "success");
-
     } catch {
       showToast("Login failed", "error");
     } finally {
@@ -157,9 +114,7 @@ function App() {
       logout();
       setUser(null);
       setScreen("login");
-
       showToast("Logged out", "info");
-
     } finally {
       hideLoader();
     }
@@ -169,7 +124,6 @@ function App() {
   // 🔀 NAVIGATION
   // =========================
   const navigate = (target) => {
-
     if (!user) return;
 
     const allowed = roleAccess[user.role] || [];
@@ -262,12 +216,14 @@ function App() {
         </Suspense>
       </MainLayout>
 
+      {/* GLOBAL LOADER */}
       {loading && (
         <div style={loaderStyle}>
           Loading...
         </div>
       )}
 
+      {/* GLOBAL TOAST */}
       {message && (
         <div style={{
           ...toastStyle,

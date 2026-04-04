@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Home,
   ShoppingCart,
@@ -16,6 +16,10 @@ import {
 import colors from "../design/colors";
 import spacing from "../design/spacing";
 
+// ✅ SYNC SYSTEM
+import SyncStatus from "../components/SyncStatus";
+import { subscribeToSync } from "../services/syncService";
+
 export default function MainLayout({
   children,
   currentScreen,
@@ -26,6 +30,17 @@ export default function MainLayout({
 
   const [collapsed, setCollapsed] = useState(false);
 
+  // ✅ GLOBAL SYNC STATE
+  const [syncState, setSyncState] = useState({
+    status: "idle",
+    pending: 0
+  });
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSync(setSyncState);
+    return () => unsubscribe();
+  }, []);
+
   const menu = [
     { key: "dashboard", label: "Dashboard", icon: <Home />, roles: ["admin","manager","supervisor"] },
     { key: "pos", label: "POS", icon: <ShoppingCart />, roles: ["admin","cashier"] },
@@ -35,10 +50,7 @@ export default function MainLayout({
     { key: "users", label: "Users", icon: <Users />, roles: ["admin"] },
     { key: "cash", label: "Cash", icon: <DollarSign />, roles: ["admin"] },
     { key: "mpesa", label: "M-Pesa", icon: <Smartphone />, roles: ["admin"] },
-
-    // 🔥 NEW: ECOMMERCE (SHOP)
     { key: "ecommerce", label: "Shop", icon: <Store />, roles: ["admin","manager","sales","customer"] },
-
     { key: "ai", label: "AI", icon: <Brain />, roles: ["admin","manager"] },
   ];
 
@@ -93,6 +105,14 @@ export default function MainLayout({
       {/* MAIN */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
 
+        {/* 🔥 GLOBAL SYNC BAR */}
+        <div style={globalBar}>
+          <SyncStatus
+            status={syncState.status}
+            pendingCount={syncState.pending}
+          />
+        </div>
+
         {/* TOPBAR */}
         <div style={{
           height: 60,
@@ -101,7 +121,8 @@ export default function MainLayout({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: `0 ${spacing.lg}px`
+          padding: `0 ${spacing.lg}px`,
+          marginTop: 32 // 👈 push below sync bar
         }}>
           <div style={{
             fontWeight: "bold",
@@ -179,3 +200,20 @@ function NavItem({ icon, label, active, collapsed, onClick }) {
     </div>
   );
 }
+
+/* ================= GLOBAL BAR ================= */
+
+const globalBar = {
+  position: "fixed",
+  top: 0,
+  left: 220,
+  right: 0,
+  height: 32,
+  background: "#f9fafb",
+  borderBottom: "1px solid #e5e7eb",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  padding: "0 16px",
+  zIndex: 2000
+};

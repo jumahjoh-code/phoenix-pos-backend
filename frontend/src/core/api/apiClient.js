@@ -1,6 +1,6 @@
-// src/core/api/apiClient.js
-
 import { API } from "config";
+import { addToQueue } from "../../services/offlineQueue";
+import { updatePendingCount } from "../../services/syncService";
 
 // =========================
 // 🔐 TOKEN HELPERS
@@ -17,9 +17,7 @@ export const logout = () => {
 // 🔄 REFRESH TOKEN
 // =========================
 const refreshAccessToken = async () => {
-
   const refresh_token = getRefreshToken();
-
   if (!refresh_token) return null;
 
   try {
@@ -34,7 +32,6 @@ const refreshAccessToken = async () => {
     if (!res.ok) return null;
 
     const data = await res.json();
-
     localStorage.setItem("access_token", data.access_token);
 
     return data.access_token;
@@ -46,10 +43,28 @@ const refreshAccessToken = async () => {
 };
 
 // =========================
-// 🌐 AUTH FETCH
+// 📦 QUEUE HELPER
+// =========================
+const queueRequest = (endpoint, options) => {
+  addToQueue({
+    url: `${API}${endpoint}`,
+    options: {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getToken()}`
+      }
+    }
+  });
+
+  updatePendingCount();
+};
+
+// =========================
+// 🌐 AUTH FETCH (OFFLINE-AWARE)
 // =========================
 export const authFetch = async (endpoint, options = {}) => {
-
   let token = getToken();
 
   try {
@@ -66,7 +81,6 @@ export const authFetch = async (endpoint, options = {}) => {
     // 🔄 HANDLE 401 (AUTO REFRESH)
     // =========================
     if (res.status === 401) {
-
       const newToken = await refreshAccessToken();
 
       if (!newToken) {
@@ -74,7 +88,6 @@ export const authFetch = async (endpoint, options = {}) => {
         return null;
       }
 
-      // 🔁 RETRY REQUEST
       res = await fetch(`${API}${endpoint}`, {
         ...options,
         headers: {
@@ -88,7 +101,19 @@ export const authFetch = async (endpoint, options = {}) => {
     return res;
 
   } catch (err) {
-    console.warn("API request failed (likely offline):", endpoint);
-    throw err;
+    console.warn("⚠️ API failed → queued:", endpoint);
+
+    // =========================
+    // 📥 OFFLINE FALLBACK
+    // =========================
+    queueRequest(endpoint, options);
+
+    return {
+      ok: true,
+      offline: true,
+      json: async () => ({
+        message: "Saved offline. Will sync automatically."
+      })
+    };
   }
 };

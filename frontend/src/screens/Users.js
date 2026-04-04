@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { API, getAuthHeaders } from "config";
+import { api } from "../services/api";
 
 export default function Users({ setCurrentScreen }) {
 
@@ -30,29 +30,6 @@ export default function Users({ setCurrentScreen }) {
   }, [currentUser, setCurrentScreen]);
 
   // =========================
-  // 🌐 API HELPER
-  // =========================
-  const apiRequest = async (url, options = {}) => {
-    try {
-      const res = await fetch(url, {
-        headers: getAuthHeaders(),
-        ...options
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.detail || "Request failed");
-      }
-
-      return data;
-
-    } catch (err) {
-      throw err;
-    }
-  };
-
-  // =========================
   // 📥 FETCH USERS
   // =========================
   const fetchUsers = async () => {
@@ -60,7 +37,7 @@ export default function Users({ setCurrentScreen }) {
       setLoading(true);
       setError(null);
 
-      const data = await apiRequest(`${API}/users/`);
+      const data = await api.get("/users/");
       setUsers(data);
 
     } catch (err) {
@@ -106,19 +83,13 @@ export default function Users({ setCurrentScreen }) {
       return;
     }
 
-    const url = editingId
-      ? `${API}/users/${editingId}`
-      : `${API}/users/`;
-
-    const method = editingId ? "PUT" : "POST";
-
     setActionLoading(true);
 
     try {
-      await apiRequest(url, {
-        method,
-        body: JSON.stringify(form)
-      });
+      await api[editingId ? "put" : "post"](
+        editingId ? `/users/${editingId}` : "/users/",
+        form
+      );
 
       setSuccess(editingId ? "User updated" : "User created");
 
@@ -161,9 +132,7 @@ export default function Users({ setCurrentScreen }) {
     setActionLoading(true);
 
     try {
-      await apiRequest(`${API}/users/${id}`, {
-        method: "DELETE"
-      });
+      await api.delete(`/users/${id}`);
 
       setSuccess("User deleted");
       fetchUsers();
