@@ -1,5 +1,3 @@
-// src/screens/POSScreen.js
-
 import React, { useState, useEffect, useRef } from "react";
 
 // DESIGN
@@ -12,24 +10,21 @@ import ProductGrid from "../components/ProductGrid";
 import CartTable from "../components/CartTable";
 import PaymentPanel from "../components/PaymentPanel";
 import ReceiptModal from "../components/ReceiptModal";
-import MpesaCheckout from "../components/MpesaCheckout";
 
-// ✅ SERVICES (NEW)
+// ✅ FIXED SERVICES
 import { getProducts } from "../core/services/productService";
-import { recordSale } from "../core/services/salesService";
-import { payCash } from "../core/services/paymentService";
+import { completeSale } from "../services/salesService";
+import { processCashPayment } from "../services/paymentService";
 
 // OFFLINE
 import { syncOfflineSales } from "../core/offline/syncService";
 
 export default function POSScreen() {
-
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [cashReceived, setCashReceived] = useState(0);
   const [receipt, setReceipt] = useState(null);
 
-  const [showMpesa, setShowMpesa] = useState(false);
   const [pendingSale, setPendingSale] = useState(null);
   const [remaining, setRemaining] = useState(0);
 
@@ -45,7 +40,7 @@ export default function POSScreen() {
     "KES " + Number(v || 0).toLocaleString();
 
   // =========================
-  // LOAD PRODUCTS (FIXED)
+  // LOAD PRODUCTS
   // =========================
   useEffect(() => {
     const loadProducts = async () => {
@@ -85,17 +80,18 @@ export default function POSScreen() {
   const addProduct = (input) => {
     if (processing) return false;
 
-    let product = typeof input === "object"
-      ? input
-      : products.find(p => p.barcode === input);
+    let product =
+      typeof input === "object"
+        ? input
+        : products.find((p) => p.barcode === input);
 
     if (!product) return false;
 
-    setCart(prev => {
-      const existing = prev.find(p => p.id === product.id);
+    setCart((prev) => {
+      const existing = prev.find((p) => p.id === product.id);
 
       if (existing) {
-        return prev.map(p =>
+        return prev.map((p) =>
           p.id === product.id
             ? { ...p, quantity: p.quantity + 1 }
             : p
@@ -109,8 +105,8 @@ export default function POSScreen() {
           name: product.name,
           retail_price: Number(product.retail_price || 0),
           quantity: 1,
-          stock: Number(product.stock_quantity || 0)
-        }
+          stock: Number(product.stock_quantity || 0),
+        },
       ];
     });
 
@@ -120,8 +116,8 @@ export default function POSScreen() {
   const increaseQty = (id) => {
     if (processing) return;
 
-    setCart(prev =>
-      prev.map(item =>
+    setCart((prev) =>
+      prev.map((item) =>
         item.id === id && item.quantity < item.stock
           ? { ...item, quantity: item.quantity + 1 }
           : item
@@ -132,25 +128,24 @@ export default function POSScreen() {
   const decreaseQty = (id) => {
     if (processing) return;
 
-    setCart(prev =>
+    setCart((prev) =>
       prev
-        .map(item =>
+        .map((item) =>
           item.id === id
             ? { ...item, quantity: item.quantity - 1 }
             : item
         )
-        .filter(item => item.quantity > 0)
+        .filter((item) => item.quantity > 0)
     );
   };
 
   const removeFromCart = (id) => {
     if (processing) return;
-    setCart(prev => prev.filter(item => item.id !== id));
+    setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
   const total = cart.reduce(
-    (sum, item) =>
-      sum + (item.retail_price * item.quantity),
+    (sum, item) => sum + item.retail_price * item.quantity,
     0
   );
 
@@ -170,19 +165,29 @@ export default function POSScreen() {
     try {
       let sale = pendingSale;
 
+      // ✅ CREATE SALE FIRST
       if (!sale) {
-        const res = await recordSale({
-          items: cart,
-          user_id: user?.id
-        });
+        sale = await completeSale(
+          cart.map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            price: item.retail_price,
+          })),
+          total
+        );
 
-        sale = await res.json();
+        if (!sale || !sale.id) {
+          alert("Sale failed");
+          setProcessing(false);
+          return;
+        }
 
         setPendingSale(sale);
         setRemaining(sale.total_amount);
       }
 
-      await payCash(sale.id, Number(cashReceived));
+      // ✅ PROCESS PAYMENT
+      await processCashPayment(sale.id, Number(cashReceived));
 
       const newRemaining =
         (sale.total_amount || remaining) - Number(cashReceived);
@@ -190,6 +195,7 @@ export default function POSScreen() {
       setRemaining(newRemaining);
       setCashReceived(0);
 
+      // ✅ COMPLETE SALE
       if (newRemaining <= 0) {
         setReceipt(sale);
         setCart([]);
@@ -197,8 +203,8 @@ export default function POSScreen() {
         setRemaining(0);
         setIsPaying(false);
       }
-
     } catch (err) {
+      console.error(err);
       alert("Payment failed");
     } finally {
       setProcessing(false);
@@ -214,8 +220,13 @@ export default function POSScreen() {
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: colors.background }}>
-
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        background: colors.background,
+      }}
+    >
       {/* LEFT */}
       <div style={{ flex: 2, padding: spacing.lg }}>
         <h2 style={{ color: colors.primary }}>POS</h2>
@@ -232,15 +243,16 @@ export default function POSScreen() {
       </div>
 
       {/* RIGHT */}
-      <div style={{
-        flex: 1,
-        background: colors.surface,
-        borderLeft: `1px solid ${colors.border}`,
-        padding: spacing.lg,
-        display: "flex",
-        flexDirection: "column"
-      }}>
-
+      <div
+        style={{
+          flex: 1,
+          background: colors.surface,
+          borderLeft: `1px solid ${colors.border}`,
+          padding: spacing.lg,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         <h3>Cart ({cart.length})</h3>
 
         <div style={{ flex: 1, overflowY: "auto" }}>
@@ -262,11 +274,9 @@ export default function POSScreen() {
           onFocusPayment={() => setIsPaying(true)}
           onBlurPayment={() => setIsPaying(false)}
         />
-
       </div>
 
       <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
-
     </div>
   );
 }
