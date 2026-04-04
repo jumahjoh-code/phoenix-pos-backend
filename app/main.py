@@ -40,12 +40,10 @@ from app.routers.payment_router import router as payment_router
 from app.routers.mpesa_router import router as mpesa_router
 from app.routers.ledger_router import router as ledger_router
 
-
 # =========================
 # APP INIT
 # =========================
 app = FastAPI(title="Phoenix POS", version="2.0.0")
-
 
 # =========================
 # CORS
@@ -58,7 +56,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # =========================
 # STARTUP
 # =========================
@@ -67,23 +64,21 @@ def startup():
     Base.metadata.create_all(bind=engine)
     create_default_admin()
 
-
 # =========================
-# ROUTERS
+# ROUTERS (GLOBAL /api PREFIX)
 # =========================
-app.include_router(product_router)
-app.include_router(customer_router)
-app.include_router(sales_router)
-app.include_router(inventory_router)
-app.include_router(supplier_router)
-app.include_router(purchase_router)
-app.include_router(dashboard_router)
-app.include_router(user_router)
-app.include_router(auth_router)
-app.include_router(payment_router)
-app.include_router(mpesa_router)
-app.include_router(ledger_router)
-
+app.include_router(product_router, prefix="/api")
+app.include_router(customer_router, prefix="/api")
+app.include_router(sales_router, prefix="/api")
+app.include_router(inventory_router, prefix="/api")
+app.include_router(supplier_router, prefix="/api")
+app.include_router(purchase_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
+app.include_router(user_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(payment_router, prefix="/api")
+app.include_router(mpesa_router, prefix="/api")
+app.include_router(ledger_router, prefix="/api")
 
 # =========================
 # FRONTEND PATH
@@ -91,7 +86,6 @@ app.include_router(ledger_router)
 frontend_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
 )
-
 
 # =========================
 # SERVE FRONTEND
