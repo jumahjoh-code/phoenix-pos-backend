@@ -4,10 +4,11 @@ import { API, getAuthHeaders } from "config";
 export default function Users({ setCurrentScreen }) {
 
   const [users, setUsers] = useState([]);
-
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("cashier");
+  const [form, setForm] = useState({
+    username: "",
+    password: "",
+    role: "cashier"
+  });
 
   const [editingId, setEditingId] = useState(null);
 
@@ -18,64 +19,70 @@ export default function Users({ setCurrentScreen }) {
   const [success, setSuccess] = useState(null);
 
   const currentUser = JSON.parse(localStorage.getItem("user"));
-  console.log("👤 CURRENT USER:", currentUser);
 
   // =========================
   // 🔐 ADMIN GUARD
   // =========================
   useEffect(() => {
     if (!currentUser || currentUser.role !== "admin") {
-      console.log("⛔ Not admin, redirecting...");
       setCurrentScreen && setCurrentScreen("dashboard");
     }
   }, [currentUser, setCurrentScreen]);
 
   // =========================
+  // 🌐 API HELPER
+  // =========================
+  const apiRequest = async (url, options = {}) => {
+    try {
+      const res = await fetch(url, {
+        headers: getAuthHeaders(),
+        ...options
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || "Request failed");
+      }
+
+      return data;
+
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  // =========================
   // 📥 FETCH USERS
   // =========================
   const fetchUsers = async () => {
-    console.log("🔥 FETCH USERS CALLED");
-
     try {
       setLoading(true);
       setError(null);
 
-      const token = localStorage.getItem("access_token");
-      console.log("🔑 TOKEN:", token);
-
-      const res = await fetch(`${API}/users`, {
-        headers: getAuthHeaders()
-      });
-
-      console.log("📡 RESPONSE STATUS:", res.status);
-
-      const data = await res.json();
-      console.log("📦 RESPONSE DATA:", data);
-
-      if (!res.ok) {
-        setError("Failed to load users");
-        return;
-      }
-
+      const data = await apiRequest(`${API}/users/`);
       setUsers(data);
 
     } catch (err) {
-      console.error("❌ FETCH ERROR:", err);
-      setError("Failed to load users");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    console.log("🔥 USE EFFECT RUNNING");
     fetchUsers();
   }, []);
 
+  // =========================
+  // 🧹 RESET FORM
+  // =========================
   const resetForm = () => {
-    setUsername("");
-    setPassword("");
-    setRole("cashier");
+    setForm({
+      username: "",
+      password: "",
+      role: "cashier"
+    });
     setEditingId(null);
   };
 
@@ -89,43 +96,37 @@ export default function Users({ setCurrentScreen }) {
     setError(null);
     setSuccess(null);
 
-    if (!username.trim()) {
+    if (!form.username.trim()) {
       setError("Username required");
       return;
     }
 
-    if (!editingId && password.length < 4) {
+    if (!editingId && form.password.length < 4) {
       setError("Password must be at least 4 characters");
       return;
     }
 
     const url = editingId
       ? `${API}/users/${editingId}`
-      : `${API}/users`;
+      : `${API}/users/`;
 
     const method = editingId ? "PUT" : "POST";
 
     setActionLoading(true);
 
     try {
-      const res = await fetch(url, {
+      await apiRequest(url, {
         method,
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ username, password, role })
+        body: JSON.stringify(form)
       });
-
-      if (!res.ok) {
-        setError("Operation failed");
-        return;
-      }
 
       setSuccess(editingId ? "User updated" : "User created");
 
       resetForm();
       fetchUsers();
 
-    } catch {
-      setError("Server error");
+    } catch (err) {
+      setError(err.message);
     } finally {
       setActionLoading(false);
     }
@@ -135,9 +136,11 @@ export default function Users({ setCurrentScreen }) {
   // ✏️ EDIT
   // =========================
   const handleEdit = (user) => {
-    setUsername(user.username);
-    setRole(user.role);
-    setPassword("");
+    setForm({
+      username: user.username,
+      password: "",
+      role: user.role
+    });
     setEditingId(user.id);
   };
 
@@ -158,28 +161,22 @@ export default function Users({ setCurrentScreen }) {
     setActionLoading(true);
 
     try {
-      const res = await fetch(`${API}/users/${id}`, {
-        method: "DELETE",
-        headers: getAuthHeaders()
+      await apiRequest(`${API}/users/${id}`, {
+        method: "DELETE"
       });
-
-      if (!res.ok) {
-        setError("Delete failed");
-        return;
-      }
 
       setSuccess("User deleted");
       fetchUsers();
 
-    } catch {
-      setError("Delete failed");
+    } catch (err) {
+      setError(err.message);
     } finally {
       setActionLoading(false);
     }
   };
 
   // =========================
-  // 🧠 UI (FIXED ERROR HANDLING)
+  // UI
   // =========================
   if (loading) return <p style={styles.msg}>Loading users...</p>;
 
@@ -195,9 +192,7 @@ export default function Users({ setCurrentScreen }) {
 
       <h2 style={styles.title}>Users Management</h2>
 
-      {/* ✅ ERROR now does NOT break UI */}
       {error && <div style={styles.error}>{error}</div>}
-
       {success && <div style={styles.success}>{success}</div>}
 
       {/* FORM */}
@@ -208,8 +203,8 @@ export default function Users({ setCurrentScreen }) {
 
           <input
             placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
             style={styles.input}
             disabled={actionLoading}
           />
@@ -217,15 +212,15 @@ export default function Users({ setCurrentScreen }) {
           <input
             placeholder="Password"
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
             style={styles.input}
             disabled={actionLoading}
           />
 
           <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
+            value={form.role}
+            onChange={(e) => setForm({ ...form, role: e.target.value })}
             style={styles.input}
             disabled={actionLoading}
           >
@@ -272,12 +267,7 @@ export default function Users({ setCurrentScreen }) {
               const isCurrentUser = u.id === currentUser?.id;
 
               return (
-                <tr
-                  key={u.id}
-                  style={{
-                    background: isCurrentUser ? "#fef9c3" : "transparent"
-                  }}
-                >
+                <tr key={u.id}>
                   <td>{u.id}</td>
 
                   <td>
@@ -285,12 +275,7 @@ export default function Users({ setCurrentScreen }) {
                     {isCurrentUser && " (You)"}
                   </td>
 
-                  <td style={{
-                    fontWeight: "bold",
-                    color: u.role === "admin" ? "#2563eb" : "#111"
-                  }}>
-                    {u.role}
-                  </td>
+                  <td>{u.role}</td>
 
                   <td>
                     <button
