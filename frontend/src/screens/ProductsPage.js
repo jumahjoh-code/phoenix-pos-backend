@@ -246,3 +246,44 @@ export default function ProductsPage() {
     </div>
   );
 }
+
+const styles = {
+  container: {
+    padding: 20
+  },
+  card: {
+    background: "#fff",
+    padding: 15,
+    borderRadius: 10,
+    border: "1px solid #eee",
+    marginBottom: 15
+  },
+  input: {
+    padding: 10,
+    borderRadius: 6,
+    border: "1px solid #ccc",
+    marginBottom: 10,
+    width: "100%"
+  },
+  button: {
+    padding: 10,
+    borderRadius: 6,
+    border: "none",
+    background: "#FACC15",
+    cursor: "pointer",
+    fontWeight: "bold"
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse"
+  },
+  th: {
+    textAlign: "left",
+    padding: 10,
+    borderBottom: "1px solid #eee"
+  },
+  td: {
+    padding: 10,
+    borderBottom: "1px solid #eee"
+  }
+};
