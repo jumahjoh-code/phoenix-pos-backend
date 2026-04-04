@@ -6,8 +6,8 @@ export default function CashScreen() {
   const [amount, setAmount] = useState("");
   const [type, setType] = useState("in");
   const [reason, setReason] = useState("");
-  const [loading, setLoading] = useState(false);
 
+  const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [balance, setBalance] = useState(0);
 
@@ -28,12 +28,12 @@ export default function CashScreen() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.detail || "Failed to load cash data");
+        setError(data?.detail || "Failed to load cash data");
         return;
       }
 
-      setHistory(data.history || []);
-      setBalance(data.balance || 0);
+      setHistory(data?.history || []);
+      setBalance(data?.balance || 0);
 
     } catch (err) {
       console.error(err);
@@ -60,6 +60,7 @@ export default function CashScreen() {
 
     const parsedAmount = Number(amount);
 
+    // ✅ VALIDATION
     if (!parsedAmount || parsedAmount <= 0) {
       setError("Enter valid amount");
       return;
@@ -75,7 +76,7 @@ export default function CashScreen() {
       return;
     }
 
-    // 🔥 CONFIRM CASH OUT (FIXED)
+    // ✅ CONFIRM CASH OUT
     if (type === "out") {
       const confirmAction = window.confirm(
         `Withdraw ${formatKES(parsedAmount)} ?`
@@ -97,21 +98,28 @@ export default function CashScreen() {
 
       const data = await res.json();
 
+      // ❌ HANDLE BACKEND ERRORS PROPERLY
       if (!res.ok) {
-        setError(data.detail || "Failed to record entry");
+        setError(
+          data?.detail ||
+          data?.message ||
+          "Failed to record entry"
+        );
         return;
       }
 
-      // ✅ SAFE OFFLINE CHECK
-      if (data?.message && data.message.includes("offline")) {
-        setSuccess("Saved offline. Will sync automatically.");
+      // ✅ HANDLE OFFLINE MODE
+      if (res.offline) {
+        setSuccess("📥 Saved offline. Will sync automatically.");
       } else {
         setSuccess("✅ Recorded successfully");
       }
 
+      // RESET FORM
       setAmount("");
       setReason("");
 
+      // RELOAD DATA
       await loadData();
 
     } catch (err) {
@@ -130,6 +138,7 @@ export default function CashScreen() {
   const computedHistory = [...history]
     .reverse()
     .map(item => {
+
       if (item.type === "in") {
         runningBalance -= item.amount;
       } else {
