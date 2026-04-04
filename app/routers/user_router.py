@@ -7,7 +7,7 @@ from app.auth_utils import hash_password
 from app.dependencies import require_admin
 
 # ✅ FIXED PREFIX
-router = APIRouter(prefix="/api/users", tags=["Users"])
+router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.post("/", response_model=UserOut)
