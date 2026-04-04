@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.auth_utils import decode_token
+from app.core.security import verify_token  # ✅ USE THIS
 
 security = HTTPBearer()
 
@@ -11,7 +11,7 @@ security = HTTPBearer()
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
     token = credentials.credentials
-    payload = decode_token(token)
+    payload = verify_token(token)   # ✅ FIXED
 
     if not payload:
         raise HTTPException(
