@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
 from app.models.payment import Payment
 from app.models.sale import Sale
+from app.models.ledger import Ledger
 
 
-# 🔷 CREATE PAYMENT (USED BEFORE STK PUSH OR CASH)
+# 🔷 CREATE PAYMENT
 def create_payment(
     db: Session,
     sale_id: int,
@@ -42,7 +43,7 @@ def attach_checkout_request_id(
     return payment
 
 
-# 🔥 INTERNAL: UPDATE SALE STATUS BASED ON PAYMENTS
+# 🔥 UPDATE SALE STATUS
 def update_sale_status(db: Session, sale_id: int):
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
 
@@ -66,7 +67,7 @@ def update_sale_status(db: Session, sale_id: int):
     return sale
 
 
-# 🔷 MARK PAYMENT SUCCESS (FROM CALLBACK)
+# 🔷 MARK PAYMENT SUCCESS (MPESA)
 def mark_payment_success(
     db: Session,
     checkout_request_id: str,
@@ -82,7 +83,15 @@ def mark_payment_success(
     payment.status = "completed"
     payment.reference = mpesa_code
 
-    # 🔥 UPDATE SALE STATUS PROPERLY
+    # 🔥 ALSO RECORD IN LEDGER
+    ledger_entry = Ledger(
+        type="in",
+        amount=payment.amount,
+        reason=f"M-Pesa payment for sale #{payment.sale_id}"
+    )
+
+    db.add(ledger_entry)
+
     update_sale_status(db, payment.sale_id)
 
     db.commit()
@@ -111,7 +120,7 @@ def mark_payment_failed(
     return payment
 
 
-# 🔥 MARK CASH PAYMENT (INSTANT SUCCESS)
+# 🔥 MARK CASH PAYMENT (FIXED)
 def mark_cash_payment(
     db: Session,
     sale_id: int,
@@ -120,6 +129,15 @@ def mark_cash_payment(
     payment = create_payment(db, sale_id, amount, "cash")
 
     payment.status = "completed"
+
+    # ✅ FIX: ADD CASH TO LEDGER
+    ledger_entry = Ledger(
+        type="in",  # 🔥 THIS WAS MISSING
+        amount=amount,
+        reason=f"Cash sale #{sale_id}"
+    )
+
+    db.add(ledger_entry)
 
     # 🔥 UPDATE SALE STATUS
     update_sale_status(db, sale_id)
@@ -130,12 +148,12 @@ def mark_cash_payment(
     return payment
 
 
-# 🔷 GET PAYMENTS BY SALE (FOR RECEIPTS / UI)
+# 🔷 GET PAYMENTS
 def get_payments_by_sale(db: Session, sale_id: int):
     return db.query(Payment).filter(Payment.sale_id == sale_id).all()
 
 
-# 🔷 TOTAL PAID FOR A SALE
+# 🔷 TOTAL PAID
 def get_total_paid(db: Session, sale_id: int):
     payments = db.query(Payment).filter(
         Payment.sale_id == sale_id,
