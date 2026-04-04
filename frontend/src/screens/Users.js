@@ -18,12 +18,14 @@ export default function Users({ setCurrentScreen }) {
   const [success, setSuccess] = useState(null);
 
   const currentUser = JSON.parse(localStorage.getItem("user"));
+  console.log("👤 CURRENT USER:", currentUser);
 
   // =========================
   // 🔐 ADMIN GUARD
   // =========================
   useEffect(() => {
     if (!currentUser || currentUser.role !== "admin") {
+      console.log("⛔ Not admin, redirecting...");
       setCurrentScreen && setCurrentScreen("dashboard");
     }
   }, [currentUser, setCurrentScreen]);
@@ -32,15 +34,23 @@ export default function Users({ setCurrentScreen }) {
   // 📥 FETCH USERS
   // =========================
   const fetchUsers = async () => {
+    console.log("🔥 FETCH USERS CALLED");
+
     try {
       setLoading(true);
       setError(null);
+
+      const token = localStorage.getItem("access_token");
+      console.log("🔑 TOKEN:", token);
 
       const res = await fetch(`${API}/users`, {
         headers: getAuthHeaders()
       });
 
+      console.log("📡 RESPONSE STATUS:", res.status);
+
       const data = await res.json();
+      console.log("📦 RESPONSE DATA:", data);
 
       if (!res.ok) {
         setError("Failed to load users");
@@ -49,7 +59,8 @@ export default function Users({ setCurrentScreen }) {
 
       setUsers(data);
 
-    } catch {
+    } catch (err) {
+      console.error("❌ FETCH ERROR:", err);
       setError("Failed to load users");
     } finally {
       setLoading(false);
@@ -57,6 +68,7 @@ export default function Users({ setCurrentScreen }) {
   };
 
   useEffect(() => {
+    console.log("🔥 USE EFFECT RUNNING");
     fetchUsers();
   }, []);
 
@@ -166,8 +178,10 @@ export default function Users({ setCurrentScreen }) {
     }
   };
 
+  // =========================
+  // 🧠 UI (FIXED ERROR HANDLING)
+  // =========================
   if (loading) return <p style={styles.msg}>Loading users...</p>;
-  if (error) return <p style={styles.error}>{error}</p>;
 
   return (
     <div style={styles.page}>
@@ -180,6 +194,9 @@ export default function Users({ setCurrentScreen }) {
       </button>
 
       <h2 style={styles.title}>Users Management</h2>
+
+      {/* ✅ ERROR now does NOT break UI */}
+      {error && <div style={styles.error}>{error}</div>}
 
       {success && <div style={styles.success}>{success}</div>}
 
@@ -303,15 +320,9 @@ export default function Users({ setCurrentScreen }) {
   );
 }
 
-// =========================
-// 🎨 STYLES
-// =========================
 const styles = {
-
   page: { maxWidth: 1000, margin: "0 auto" },
-
   title: { color: "#FACC15" },
-
   card: {
     background: "#FFFFFF",
     padding: 20,
@@ -319,25 +330,21 @@ const styles = {
     border: "1px solid #eee",
     marginTop: 20
   },
-
   form: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))",
     gap: 10
   },
-
   input: {
     padding: 10,
     borderRadius: 8,
     border: "1px solid #ddd"
   },
-
   table: {
     width: "100%",
     borderCollapse: "collapse",
     marginTop: 10
   },
-
   primaryBtn: {
     background: "#FACC15",
     border: "none",
@@ -345,7 +352,6 @@ const styles = {
     borderRadius: 8,
     cursor: "pointer"
   },
-
   grayBtn: {
     background: "#eee",
     border: "none",
@@ -354,7 +360,6 @@ const styles = {
     borderRadius: 6,
     cursor: "pointer"
   },
-
   dangerBtn: {
     background: "#dc2626",
     color: "white",
@@ -363,7 +368,6 @@ const styles = {
     borderRadius: 6,
     cursor: "pointer"
   },
-
   backBtn: {
     marginBottom: 10,
     padding: "6px 12px",
@@ -372,14 +376,11 @@ const styles = {
     borderRadius: 6,
     cursor: "pointer"
   },
-
   msg: { padding: 20 },
-
   error: {
     padding: 20,
     color: "#991b1b"
   },
-
   success: {
     background: "#dcfce7",
     color: "#166534",
