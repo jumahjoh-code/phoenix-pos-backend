@@ -133,4 +133,9 @@ if os.path.exists(frontend_path):
 
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
+
+        # ✅ DO NOT override API routes
+        if full_path.startswith("api") or full_path.startswith("auth"):
+            return {"detail": "Not Found"}
+
         return FileResponse(os.path.join(frontend_path, "index.html"))

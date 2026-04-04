@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.core.database import Base
 from app.models.user import User
 from app.schemas.user_schema import UserCreate, UserOut
 from app.auth_utils import hash_password
 from app.dependencies import require_admin
 
-router = APIRouter(prefix="/users", tags=["Users"])
+# ✅ FIXED PREFIX
+router = APIRouter(prefix="/api/users", tags=["Users"])
 
 
 @router.post("/", response_model=UserOut)
