@@ -1,17 +1,13 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.core.security import verify_token  # ✅ USE THIS
+from app.core.security import verify_token  # ✅ correct
 
 security = HTTPBearer()
-
-# =========================
-# 🔐 GET CURRENT USER
-# =========================
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
     token = credentials.credentials
-    payload = verify_token(token)   # ✅ FIXED
+    payload = verify_token(token)   # ✅ must match login token
 
     if not payload:
         raise HTTPException(
@@ -21,10 +17,6 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
     return payload
 
-
-# =========================
-# 🛡️ REQUIRE ADMIN
-# =========================
 
 def require_admin(user = Depends(get_current_user)):
 
