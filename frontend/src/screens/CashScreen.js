@@ -75,12 +75,12 @@ export default function CashScreen() {
       return;
     }
 
-    // 🔥 CONFIRM CASH OUT
+    // 🔥 CONFIRM CASH OUT (FIXED)
     if (type === "out") {
-      const confirm = window.confirm(
+      const confirmAction = window.confirm(
         `Withdraw ${formatKES(parsedAmount)} ?`
       );
-      if (!confirm) return;
+      if (!confirmAction) return;
     }
 
     setLoading(true);
@@ -102,8 +102,8 @@ export default function CashScreen() {
         return;
       }
 
-      // ✅ HANDLE OFFLINE MODE
-      if (data?.message?.includes("offline")) {
+      // ✅ SAFE OFFLINE CHECK
+      if (data?.message && data.message.includes("offline")) {
         setSuccess("Saved offline. Will sync automatically.");
       } else {
         setSuccess("✅ Recorded successfully");
