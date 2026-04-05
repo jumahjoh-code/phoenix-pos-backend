@@ -16,7 +16,6 @@
     "@testing-library/user-event": "^13.5.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "electron": "^41.0.2",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.577.0",
     "python-shell": "^5.0.0",
@@ -34,7 +33,7 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "electron": "electron ."
-  },  
+  },
   "eslintConfig": {
     "extends": [
       "react-app",
@@ -52,5 +51,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "electron": "^41.1.1"
   }
 }

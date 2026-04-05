@@ -62,7 +62,7 @@ const queueRequest = (endpoint, options) => {
 };
 
 // =========================
-// 🌐 AUTH FETCH (OFFLINE-AWARE)
+// 🌐 AUTH FETCH (FIXED)
 // =========================
 export const authFetch = async (endpoint, options = {}) => {
   let token = getToken();
@@ -98,7 +98,27 @@ export const authFetch = async (endpoint, options = {}) => {
       });
     }
 
-    return res;
+    // =========================
+    // ✅ PARSE RESPONSE
+    // =========================
+    const data = await res.json().catch(() => ({}));
+
+    // =========================
+    // ❌ HANDLE API ERRORS PROPERLY
+    // =========================
+    if (!res.ok) {
+      console.error("❌ API ERROR:", data);
+
+      throw new Error(data.detail || "Request failed");
+    }
+
+    // =========================
+    // ✅ SUCCESS RESPONSE
+    // =========================
+    return {
+      ok: true,
+      data
+    };
 
   } catch (err) {
     console.warn("⚠️ API failed → queued:", endpoint);
@@ -111,9 +131,9 @@ export const authFetch = async (endpoint, options = {}) => {
     return {
       ok: true,
       offline: true,
-      json: async () => ({
+      data: {
         message: "Saved offline. Will sync automatically."
-      })
+      }
     };
   }
 };
