@@ -21,7 +21,7 @@ class Sale(Base):
     amount_paid = Column(Float, nullable=False, default=0)
     balance = Column(Float, nullable=False, default=0)
 
-    # 💳 PAYMENT INFO
+    # ⚠️ LEGACY (DO NOT RELY ON THESE)
     payment_method = Column(String, default="cash")
     mpesa_reference = Column(String, nullable=True)
 
@@ -35,7 +35,7 @@ class Sale(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     # =========================
-    # 🔗 RELATIONSHIPS (FIXED)
+    # 🔗 RELATIONSHIPS
     # =========================
     items = relationship(
         "SaleItem",
@@ -80,9 +80,13 @@ class Sale(Base):
             "profit": self.profit,
             "amount_paid": self.amount_paid,
             "balance": self.balance,
-            "payment_method": self.payment_method,
+
+            # ✅ derived from actual financial state
+            "payment_method": "cash" if self.amount_paid > 0 else "pending",
+
             "created_at": self.created_at,
             "user": self.user.username if self.user else None,
+
             "items": [
                 {
                     "product_id": item.product_id,

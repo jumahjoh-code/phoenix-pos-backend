@@ -42,7 +42,10 @@ def build_receipt(sale, current_user=None):
         "profit": float(sale.profit),
         "amount_paid": float(sale.amount_paid),
         "balance": float(sale.balance),
-        "payment_method": sale.payment_method,
+
+        # ✅ derive payment status from actual data
+        "payment_method": "cash" if sale.amount_paid > 0 else "pending",
+
         "status": sale.status
     }
 
@@ -62,7 +65,6 @@ def complete_sale(
 
     amount_paid = float(payment.get("amount", 0))
     payment_method = payment.get("method", "cash")
-    mpesa_reference = payment.get("mpesa_reference")
 
     # =========================
     # VALIDATION
@@ -76,52 +78,51 @@ def complete_sale(
     if amount_paid < 0:
         raise HTTPException(status_code=400, detail="Invalid payment amount")
 
-    if payment_method == "mpesa" and not mpesa_reference:
-        raise HTTPException(status_code=400, detail="Mpesa reference required")
-
     try:
         # =========================
-        # CREATE SALE
+        # 🧾 CREATE SALE (NO PAYMENT HERE)
         # =========================
         sale = create_sale(
             db=db,
             items=items,
             total=total,
-            amount_paid=amount_paid,
             user_id=current_user.id
         )
 
         # =========================
-        # PAYMENT DETAILS
+        # 💳 HANDLE PAYMENT
         # =========================
-        sale.payment_method = payment_method
-        sale.mpesa_reference = mpesa_reference
+        if payment_method == "cash" and amount_paid > 0:
+            from app.services.payment_service import mark_cash_payment
+
+            mark_cash_payment(
+                db=db,
+                sale_id=sale.id,
+                amount=amount_paid
+            )
+
+        elif payment_method == "mpesa":
+            from app.services.payment_service import create_payment
+
+            create_payment(
+                db=db,
+                sale_id=sale.id,
+                amount=amount_paid,
+                method="mpesa"
+            )
 
         # =========================
-        # RECEIPT + STATUS
+        # 🧾 RECEIPT NUMBER
         # =========================
         sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
 
-        if amount_paid >= total:
-            sale.status = "paid"
-        elif amount_paid > 0:
-            sale.status = "partial"
-        else:
-            sale.status = "pending"
-
         # =========================
-        # LEDGER
-        # =========================
-        if hasattr(sale, "record_ledger_entries"):
-            sale.record_ledger_entries(db)
-
-        # =========================
-        # COMMIT
+        # ✅ SINGLE COMMIT (CRITICAL)
         # =========================
         db.commit()
 
         # =========================
-        # 🔥 FORCE LOAD ITEMS (CRITICAL FIX)
+        # 🔥 RELOAD WITH RELATIONS
         # =========================
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
@@ -154,7 +155,7 @@ def list_sales(db: Session = Depends(get_db)):
             "total_amount": float(sale.total_amount),
             "amount_paid": float(sale.amount_paid),
             "balance": float(sale.balance),
-            "payment_method": sale.payment_method,
+            "payment_method": "cash" if sale.amount_paid > 0 else "pending",
             "status": sale.status
         }
         for sale in sales

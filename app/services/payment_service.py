@@ -39,14 +39,14 @@ def attach_checkout_request_id(
 
     payment.checkout_request_id = checkout_request_id
 
-    db.commit()
-    db.refresh(payment)
+    # ✅ DO NOT COMMIT HERE
+    db.flush()
 
     return payment
 
 
 # =========================
-# 🔥 SYNC SALE FINANCIALS (NEW CORE)
+# 🔥 SYNC SALE FINANCIALS
 # =========================
 def sync_sale_financials(db: Session, sale_id: int):
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
@@ -61,14 +61,63 @@ def sync_sale_financials(db: Session, sale_id: int):
 
     total_paid = sum(p.amount for p in payments)
 
-    # 🔥 USE MODEL METHOD
     sale.update_financials(total_paid)
 
     return sale
 
 
 # =========================
-# 🔷 MARK PAYMENT SUCCESS (MPESA)
+# 🔥 MARK CASH PAYMENT
+# =========================
+def mark_cash_payment(
+    db: Session,
+    sale_id: int,
+    amount: float
+):
+    try:
+        sale = db.query(Sale).filter(Sale.id == sale_id).first()
+        if not sale:
+            raise ValueError("Sale not found")
+
+        if amount <= 0:
+            raise ValueError("Invalid payment amount")
+
+        # 💳 Create payment
+        payment = Payment(
+            sale_id=sale_id,
+            amount=amount,
+            payment_method="cash",
+            status="completed"
+        )
+
+        db.add(payment)
+
+        # 📒 Ledger entry
+        ledger_entry = Ledger(
+            type="sale",
+            amount=amount,
+            method="cash",
+            reference=None,
+            description=f"Cash payment for sale #{sale_id}"
+        )
+
+        db.add(ledger_entry)
+
+        # 🔥 Sync financials
+        sync_sale_financials(db, sale_id)
+
+        # ✅ DO NOT COMMIT HERE (router handles commit)
+        db.flush()
+
+        return payment
+
+    except Exception as e:
+        print("🔥 PAYMENT ERROR:", str(e))
+        raise
+
+
+# =========================
+# 🔷 MARK PAYMENT SUCCESS (MPESA CALLBACK)
 # =========================
 def mark_payment_success(
     db: Session,
@@ -85,7 +134,7 @@ def mark_payment_success(
     payment.status = "completed"
     payment.reference = mpesa_code
 
-    # 🔥 Ledger entry
+    # 📒 Ledger entry
     ledger_entry = Ledger(
         type="sale",
         amount=payment.amount,
@@ -99,6 +148,7 @@ def mark_payment_success(
     # 🔥 Sync sale
     sync_sale_financials(db, payment.sale_id)
 
+    # ✅ MPESA is async → commit here is OK
     db.commit()
     db.refresh(payment)
 
@@ -125,60 +175,6 @@ def mark_payment_failed(
     db.refresh(payment)
 
     return payment
-
-
-# =========================
-# 🔥 MARK CASH PAYMENT (FINAL CLEAN VERSION)
-# =========================
-def mark_cash_payment(
-    db: Session,
-    sale_id: int,
-    amount: float
-):
-    try:
-        # 🔍 Validate sale exists
-        sale = db.query(Sale).filter(Sale.id == sale_id).first()
-        if not sale:
-            raise ValueError("Sale not found")
-
-        # 🔍 Validate amount
-        if amount <= 0:
-            raise ValueError("Invalid payment amount")
-
-        # 💳 Create payment
-        payment = Payment(
-            sale_id=sale_id,
-            amount=amount,
-            payment_method="cash",
-            status="completed"
-        )
-
-        db.add(payment)
-
-        # 📒 Ledger entry
-        ledger_entry = Ledger(
-            type="sale",
-            amount=amount,
-            method="cash",
-            reference=None,
-            description=f"Cash payment for sale #{sale_id}"
-        )
-
-        db.add(ledger_entry)
-
-        # 🔥 Sync sale financials (THIS FIXES YOUR UI)
-        sync_sale_financials(db, sale_id)
-
-        # ✅ Commit
-        db.commit()
-        db.refresh(payment)
-
-        return payment
-
-    except Exception as e:
-        db.rollback()
-        print("🔥 PAYMENT ERROR:", str(e))
-        raise
 
 
 # =========================

@@ -5,7 +5,7 @@ from app.models.sale_item import SaleItem
 from app.models.product import Product
 
 
-def create_sale(db, items, total, amount_paid, user_id=None):
+def create_sale(db, items, total, user_id=None):
 
     cost_total = 0
     prepared_items = []
@@ -35,7 +35,7 @@ def create_sale(db, items, total, amount_paid, user_id=None):
             )
 
         prepared_items.append({
-            "product": product,  # ✅ ALWAYS ORM object
+            "product": product,
             "quantity": quantity,
             "price": float(item.get("price", product.retail_price))
         })
@@ -43,14 +43,13 @@ def create_sale(db, items, total, amount_paid, user_id=None):
         cost_total += product.cost_price * quantity
 
     # =========================
-    # 🧾 CREATE SALE
+    # 🧾 CREATE SALE (NO PAYMENT HERE)
     # =========================
     sale = Sale(
         total_amount=total,
-        amount_paid=amount_paid,
-        balance=total - amount_paid,
         cost_total=cost_total,
-        profit=total - cost_total,
+        amount_paid=0,   # ✅ always start at 0
+        balance=total,   # ✅ full balance initially
         user_id=user_id
     )
 
@@ -63,7 +62,6 @@ def create_sale(db, items, total, amount_paid, user_id=None):
     for item in prepared_items:
         product = item["product"]
 
-        # 🔥 DEFENSIVE CHECK
         if not hasattr(product, "id"):
             raise HTTPException(
                 status_code=500,
