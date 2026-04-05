@@ -35,7 +35,7 @@ def create_sale(db, items, total, amount_paid, user_id=None):
             )
 
         prepared_items.append({
-            "product": product,
+            "product": product,  # ✅ ALWAYS ORM object
             "quantity": quantity,
             "price": float(item.get("price", product.retail_price))
         })
@@ -55,18 +55,25 @@ def create_sale(db, items, total, amount_paid, user_id=None):
     )
 
     db.add(sale)
-    db.flush()  # ensures sale.id
+    db.flush()
 
     # =========================
-    # 📦 CREATE ITEMS + DEDUCT STOCK
+    # 📦 CREATE ITEMS
     # =========================
     for item in prepared_items:
         product = item["product"]
+
+        # 🔥 DEFENSIVE CHECK
+        if not hasattr(product, "id"):
+            raise HTTPException(
+                status_code=500,
+                detail="Product object corrupted (not ORM instance)"
+            )
+
         quantity = item["quantity"]
 
         product.stock_quantity -= quantity
 
-        # ✅ NO sale_id here
         sale_item = SaleItem(
             product_id=product.id,
             quantity=quantity,
@@ -74,7 +81,6 @@ def create_sale(db, items, total, amount_paid, user_id=None):
             cost_price=product.cost_price
         )
 
-        # ✅ Attach via relationship ONLY
         sale.items.append(sale_item)
 
     db.flush()
