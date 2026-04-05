@@ -1,4 +1,4 @@
-import api from "../core/api/apiClient";
+import { authFetch } from "../core/api/apiClient";
 
 // ==========================
 // COMPLETE SALE (NEW CORE)
@@ -7,13 +7,18 @@ export const completeSale = async (saleData) => {
   try {
     console.log("🧾 COMPLETE SALE PAYLOAD:", saleData);
 
-    const response = await api.post("/sales/complete", saleData);
+    const res = await authFetch("/sales/complete", {
+      method: "POST",
+      body: JSON.stringify(saleData),
+    });
 
-    console.log("✅ COMPLETE SALE RESPONSE:", response.data);
+    const data = await res.json();
 
-    return response.data;
+    console.log("✅ COMPLETE SALE RESPONSE:", data);
+
+    return data;
   } catch (error) {
-    console.error("❌ COMPLETE SALE ERROR:", error.response?.data || error.message);
+    console.error("❌ COMPLETE SALE ERROR:", error);
     throw error;
   }
 };
