@@ -1,4 +1,4 @@
-import api from "../core/api"; // adjust if your path differs
+import api from "../core/api/apiClient";
 
 // ==========================
 // COMPLETE SALE (NEW CORE)
