@@ -146,7 +146,7 @@ export default function POSScreen() {
   );
 
   // =========================
-  // CASH PAYMENT (REFACTORED)
+  // CASH PAYMENT (FINAL FIXED)
   // =========================
   const handleCashPayment = async () => {
     if (processing) return;
@@ -161,7 +161,7 @@ export default function POSScreen() {
     try {
       let sale = pendingSale;
 
-      // ✅ STEP 1: CREATE SALE
+      // STEP 1: CREATE SALE
       if (!sale) {
         sale = await completeSale(
           cart.map((item) => ({
@@ -174,27 +174,24 @@ export default function POSScreen() {
 
         console.log("SALE RESULT:", sale);
 
-        // ✅ FIXED SUCCESS CHECK
         if (!sale || !sale.sale_id) {
           alert("Sale failed");
-          setProcessing(false);
           return;
         }
 
         setPendingSale(sale);
-        setRemaining(Number(sale.total || 0));
+        setRemaining(total); // ✅ FIXED
       }
 
-      // ✅ STEP 2: PROCESS PAYMENT
+      // STEP 2: PROCESS PAYMENT
       await processCashPayment(sale.sale_id, Number(cashReceived));
 
-      const newRemaining =
-        (sale.total || remaining) - Number(cashReceived);
+      const newRemaining = remaining - Number(cashReceived); // ✅ FIXED
 
       setRemaining(newRemaining);
       setCashReceived(0);
 
-      // ✅ STEP 3: COMPLETE SALE
+      // STEP 3: COMPLETE SALE
       if (newRemaining <= 0) {
         setReceipt(sale);
         setCart([]);
