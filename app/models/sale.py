@@ -21,14 +21,11 @@ class Sale(Base):
     amount_paid = Column(Float, nullable=False, default=0)
     balance = Column(Float, nullable=False, default=0)
 
-    # 💳 PAYMENT INFO (SUMMARY ONLY)
-    payment_method = Column(String, default="cash")  # last/primary method
+    # 💳 PAYMENT INFO
+    payment_method = Column(String, default="cash")
     mpesa_reference = Column(String, nullable=True)
 
     # 📌 STATUS
-    # pending → no payment
-    # partial → some payment
-    # paid → fully paid
     status = Column(String, default="pending", index=True)
 
     # 🧾 RECEIPT
@@ -38,9 +35,14 @@ class Sale(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     # =========================
-    # 🔗 RELATIONSHIPS
+    # 🔗 RELATIONSHIPS (FIXED)
     # =========================
-    items = relationship("SaleItem", backref="sale", cascade="all, delete-orphan")
+    items = relationship(
+        "SaleItem",
+        back_populates="sale",
+        cascade="all, delete-orphan"
+    )
+
     user = relationship("User")
 
     # =========================
@@ -54,16 +56,11 @@ class Sale(Base):
     # 🔥 CORE: SYNC FINANCIAL STATE
     # =========================
     def update_financials(self, total_paid: float):
-        """
-        Sync sale financial fields from payments
-        """
-
         total_paid = total_paid or 0
 
         self.amount_paid = total_paid
         self.balance = (self.total_amount or 0) - total_paid
 
-        # 🔥 STATUS LOGIC
         if total_paid <= 0:
             self.status = "pending"
         elif total_paid < self.total_amount:
