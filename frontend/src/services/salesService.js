@@ -11,7 +11,7 @@ export const completeSale = async (cartItems, total) => {
         quantity: Number(item.quantity),
         price: Number(item.price),
       })),
-      total_amount: Number(total),
+      total: Number(total),
     };
 
     console.log("SALE PAYLOAD:", payload);
