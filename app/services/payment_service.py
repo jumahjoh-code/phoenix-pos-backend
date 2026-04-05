@@ -21,7 +21,6 @@ def create_payment(
     )
 
     db.add(payment)
-
     return payment
 
 
@@ -47,9 +46,9 @@ def attach_checkout_request_id(
 
 
 # =========================
-# 🔥 UPDATE SALE STATUS
+# 🔥 SYNC SALE FINANCIALS (NEW CORE)
 # =========================
-def update_sale_status(db: Session, sale_id: int):
+def sync_sale_financials(db: Session, sale_id: int):
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
 
     if not sale:
@@ -62,12 +61,8 @@ def update_sale_status(db: Session, sale_id: int):
 
     total_paid = sum(p.amount for p in payments)
 
-    if total_paid <= 0:
-        sale.status = "pending"
-    elif total_paid < sale.total:
-        sale.status = "partial"
-    else:
-        sale.status = "paid"
+    # 🔥 USE MODEL METHOD
+    sale.update_financials(total_paid)
 
     return sale
 
@@ -90,7 +85,7 @@ def mark_payment_success(
     payment.status = "completed"
     payment.reference = mpesa_code
 
-    # 🔥 Ledger entry (FIXED)
+    # 🔥 Ledger entry
     ledger_entry = Ledger(
         type="sale",
         amount=payment.amount,
@@ -101,8 +96,8 @@ def mark_payment_success(
 
     db.add(ledger_entry)
 
-    # 🔥 Update sale
-    update_sale_status(db, payment.sale_id)
+    # 🔥 Sync sale
+    sync_sale_financials(db, payment.sale_id)
 
     db.commit()
     db.refresh(payment)
@@ -133,7 +128,7 @@ def mark_payment_failed(
 
 
 # =========================
-# 🔥 MARK CASH PAYMENT (FIXED & SAFE)
+# 🔥 MARK CASH PAYMENT (FINAL CLEAN VERSION)
 # =========================
 def mark_cash_payment(
     db: Session,
@@ -160,7 +155,7 @@ def mark_cash_payment(
 
         db.add(payment)
 
-        # 📒 Ledger entry (FIXED)
+        # 📒 Ledger entry
         ledger_entry = Ledger(
             type="sale",
             amount=amount,
@@ -171,10 +166,10 @@ def mark_cash_payment(
 
         db.add(ledger_entry)
 
-        # 🔥 Update sale status (supports partial payments)
-        update_sale_status(db, sale_id)
+        # 🔥 Sync sale financials (THIS FIXES YOUR UI)
+        sync_sale_financials(db, sale_id)
 
-        # ✅ Commit transaction
+        # ✅ Commit
         db.commit()
         db.refresh(payment)
 

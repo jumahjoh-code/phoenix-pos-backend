@@ -1,9 +1,8 @@
 from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship, Session
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-from app.models.ledger import Ledger  # 🔥 IMPORTANT
 
 
 class Sale(Base):
@@ -11,97 +10,69 @@ class Sale(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    # 🔗 RELATIONS
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    # 💰 FINANCIALS
     total_amount = Column(Float, nullable=False)
     cost_total = Column(Float, nullable=False, default=0)
 
     amount_paid = Column(Float, nullable=False, default=0)
     balance = Column(Float, nullable=False, default=0)
 
-    payment_method = Column(String, default="cash")  # 🔥 NEW
-    mpesa_reference = Column(String, nullable=True)  # 🔥 NEW
+    # 💳 PAYMENT INFO (SUMMARY ONLY)
+    payment_method = Column(String, default="cash")  # last/primary method
+    mpesa_reference = Column(String, nullable=True)
 
-    sale_type = Column(String, default="retail")
-    status = Column(String, default="completed")
+    # 📌 STATUS
+    # pending → no payment
+    # partial → some payment
+    # paid → fully paid
+    status = Column(String, default="pending", index=True)
 
+    # 🧾 RECEIPT
     receipt_number = Column(String, unique=True, index=True, nullable=True)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # ⏱️ TIMESTAMP
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     # =========================
-    # RELATIONSHIPS
+    # 🔗 RELATIONSHIPS
     # =========================
     items = relationship("SaleItem", backref="sale", cascade="all, delete-orphan")
     user = relationship("User")
 
     # =========================
-    # 🔥 HELPER: PROFIT
+    # 📊 HELPER: PROFIT
     # =========================
     @property
     def profit(self):
         return (self.total_amount or 0) - (self.cost_total or 0)
 
     # =========================
-    # 🔥 LEDGER INTEGRATION (CORE)
+    # 🔥 CORE: SYNC FINANCIAL STATE
     # =========================
-    def record_ledger_entries(self, db: Session):
+    def update_financials(self, total_paid: float):
         """
-        Automatically push this sale into ledger
+        Sync sale financial fields from payments
         """
 
-        if self.amount_paid <= 0:
-            return  # nothing paid → no cash/MPESA movement
+        total_paid = total_paid or 0
 
-        # 🔥 CASH PAYMENT
-        if self.payment_method == "cash":
-            db.add(Ledger(
-                type="sale",
-                amount=self.amount_paid,
-                method="cash",
-                reference=self.receipt_number or str(self.id),
-                description=f"Sale #{self.id}",
-                created_at=self.created_at or func.now()
-            ))
+        self.amount_paid = total_paid
+        self.balance = (self.total_amount or 0) - total_paid
 
-        # 🔥 M-PESA BUSINESS PAYMENT
-        elif self.payment_method == "mpesa":
-            db.add(Ledger(
-                type="sale",
-                amount=self.amount_paid,
-                method="mpesa_business",
-                reference=self.mpesa_reference,
-                description=f"M-Pesa Sale #{self.id}",
-                created_at=self.created_at or func.now()
-            ))
-
-        # 🔥 MIXED PAYMENT (ADVANCED)
-        elif self.payment_method == "mixed":
-            cash_part = float(self.amount_paid or 0) * 0.5
-            mpesa_part = float(self.amount_paid or 0) * 0.5
-
-            db.add_all([
-                Ledger(
-                    type="sale",
-                    amount=cash_part,
-                    method="cash",
-                    reference=self.receipt_number,
-                    description=f"Mixed Sale (cash) #{self.id}",
-                    created_at=self.created_at or func.now()
-                ),
-                Ledger(
-                    type="sale",
-                    amount=mpesa_part,
-                    method="mpesa_business",
-                    reference=self.mpesa_reference,
-                    description=f"Mixed Sale (mpesa) #{self.id}",
-                    created_at=self.created_at or func.now()
-                )
-            ])
+        # 🔥 STATUS LOGIC
+        if total_paid <= 0:
+            self.status = "pending"
+        elif total_paid < self.total_amount:
+            self.status = "partial"
+        else:
+            self.status = "paid"
 
     # =========================
-    # 🔥 RECEIPT FORMAT
+    # 🧾 RECEIPT FORMAT
     # =========================
     def to_receipt_dict(self):
         return {
