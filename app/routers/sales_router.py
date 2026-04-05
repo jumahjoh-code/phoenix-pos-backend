@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 import time
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.dependencies import get_current_user
 from app.services.sales_service import create_sale
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
