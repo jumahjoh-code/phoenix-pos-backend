@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from datetime import date, datetime, timedelta
 import uuid
@@ -48,7 +48,7 @@ def build_receipt(sale, current_user=None):
 
 
 # =========================
-# COMPLETE SALE (PRODUCTION SAFE)
+# COMPLETE SALE
 # =========================
 @router.post("/complete")
 def complete_sale(
@@ -65,7 +65,7 @@ def complete_sale(
     mpesa_reference = payment.get("mpesa_reference")
 
     # =========================
-    # 🔒 VALIDATION (ROUTER LEVEL ONLY)
+    # VALIDATION
     # =========================
     if not items or not isinstance(items, list):
         raise HTTPException(status_code=400, detail="Items must be provided")
@@ -81,7 +81,7 @@ def complete_sale(
 
     try:
         # =========================
-        # 🔥 CORE BUSINESS LOGIC (SERVICE)
+        # CREATE SALE
         # =========================
         sale = create_sale(
             db=db,
@@ -92,13 +92,13 @@ def complete_sale(
         )
 
         # =========================
-        # 💳 PAYMENT DETAILS
+        # PAYMENT DETAILS
         # =========================
         sale.payment_method = payment_method
         sale.mpesa_reference = mpesa_reference
 
         # =========================
-        # 🧾 RECEIPT + STATUS
+        # RECEIPT + STATUS
         # =========================
         sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
 
@@ -110,16 +110,23 @@ def complete_sale(
             sale.status = "pending"
 
         # =========================
-        # 💰 LEDGER
+        # LEDGER
         # =========================
         if hasattr(sale, "record_ledger_entries"):
             sale.record_ledger_entries(db)
 
         # =========================
-        # ✅ FINAL COMMIT (ONLY HERE)
+        # COMMIT
         # =========================
         db.commit()
-        db.refresh(sale)
+
+        # =========================
+        # 🔥 FORCE LOAD ITEMS (CRITICAL FIX)
+        # =========================
+        sale = db.query(Sale).options(
+            joinedload(Sale.items).joinedload(SaleItem.product),
+            joinedload(Sale.user)
+        ).filter(Sale.id == sale.id).first()
 
         return build_receipt(sale, current_user)
 
@@ -159,7 +166,10 @@ def list_sales(db: Session = Depends(get_db)):
 # =========================
 @router.get("/{sale_id}")
 def get_sale(sale_id: int, db: Session = Depends(get_db)):
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    sale = db.query(Sale).options(
+        joinedload(Sale.items).joinedload(SaleItem.product),
+        joinedload(Sale.user)
+    ).filter(Sale.id == sale_id).first()
 
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
@@ -168,7 +178,7 @@ def get_sale(sale_id: int, db: Session = Depends(get_db)):
 
 
 # =========================
-# TODAY SUMMARY (FIXED RANGE)
+# TODAY SUMMARY
 # =========================
 @router.get("/summary/today")
 def today_summary(db: Session = Depends(get_db)):
@@ -198,7 +208,7 @@ def today_summary(db: Session = Depends(get_db)):
 
 
 # =========================
-# DAILY SALES REPORT
+# DAILY REPORT
 # =========================
 @router.get("/reports/daily")
 def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
@@ -222,71 +232,3 @@ def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
         totals[d] = totals.get(d, 0) + float(sale.total_amount)
 
     return [{"date": d, "total": t} for d, t in sorted(totals.items())]
-
-
-# =========================
-# TOP PRODUCTS
-# =========================
-@router.get("/reports/top-products")
-def top_products(db: Session = Depends(get_db)):
-    results = (
-        db.query(
-            SaleItem.product_id,
-            func.sum(SaleItem.quantity).label("qty")
-        )
-        .join(Sale)
-        .group_by(SaleItem.product_id)
-        .order_by(func.sum(SaleItem.quantity).desc())
-        .limit(5)
-        .all()
-    )
-
-    return [{"product_id": r.product_id, "quantity": int(r.qty)} for r in results]
-
-
-# =========================
-# WORST PRODUCTS
-# =========================
-@router.get("/reports/worst-products")
-def worst_products(db: Session = Depends(get_db)):
-    results = (
-        db.query(
-            SaleItem.product_id,
-            func.sum(SaleItem.quantity).label("qty")
-        )
-        .join(Sale)
-        .group_by(SaleItem.product_id)
-        .order_by(func.sum(SaleItem.quantity).asc())
-        .limit(5)
-        .all()
-    )
-
-    return [{"product_id": r.product_id, "quantity": int(r.qty)} for r in results]
-
-
-# =========================
-# CASHIER PERFORMANCE
-# =========================
-@router.get("/reports/cashier-performance")
-def cashier_performance(db: Session = Depends(get_db)):
-    results = db.query(
-        Sale.user_id,
-        func.count(Sale.id),
-        func.coalesce(func.sum(Sale.total_amount), 0),
-        func.coalesce(func.sum(Sale.cost_total), 0)
-    ).group_by(Sale.user_id).all()
-
-    data = []
-
-    for user_id, transactions, total_sales, total_cost in results:
-        user = db.query(User).filter(User.id == user_id).first()
-
-        data.append({
-            "user_id": user_id,
-            "username": user.username if user else "Unknown",
-            "transactions": int(transactions),
-            "total_sales": float(total_sales),
-            "profit": float(total_sales - total_cost)
-        })
-
-    return data
