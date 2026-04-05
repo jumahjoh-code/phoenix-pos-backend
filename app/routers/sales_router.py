@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date, datetime, timedelta
+import time
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.services.sales_service import create_sale
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
@@ -19,12 +21,12 @@ router = APIRouter(
 # =========================
 # HELPER: BUILD RECEIPT
 # =========================
-def build_receipt(sale):
+def build_receipt(sale, current_user=None):
     return {
         "sale_id": sale.id,
         "receipt_number": sale.receipt_number,
         "date": sale.created_at,
-        "user": sale.user.username if sale.user else None,
+        "user": current_user.username if current_user else (sale.user.username if sale.user else None),
         "items": [
             {
                 "product_id": item.product_id,
@@ -46,11 +48,61 @@ def build_receipt(sale):
 
 
 # =========================
-# RECORD SALE
+# COMPLETE SALE (ATOMIC)
+# =========================
+@router.post("/complete")
+def complete_sale(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    items = data.get("items")
+    total = data.get("total")
+    payment = data.get("payment", {})
+
+    amount_paid = float(payment.get("amount", 0))
+    payment_method = payment.get("method", "cash")
+    mpesa_reference = payment.get("mpesa_reference")
+
+    if not items or not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="Items must be provided")
+
+    if total is None:
+        raise HTTPException(status_code=400, detail="Total is required")
+
+    try:
+        sale = create_sale(
+            db,
+            items,
+            total,
+            amount_paid,
+            current_user.id
+        )
+
+        sale.payment_method = payment_method
+        sale.mpesa_reference = mpesa_reference
+
+        sale.receipt_number = f"RCPT-{int(time.time())}"
+        sale.status = "paid" if amount_paid >= total else "pending"
+
+        if hasattr(sale, "record_ledger_entries"):
+            sale.record_ledger_entries(db)
+
+        db.commit()
+        db.refresh(sale)
+
+        return build_receipt(sale, current_user)
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================
+# RECORD SALE (LEGACY - OPTIONAL)
 # =========================
 @router.post("/")
 def record_sale(data: dict, db: Session = Depends(get_db)):
-
     items = data.get("items")
     total = data.get("total")
     amount_paid = float(data.get("amount_paid", 0))
@@ -71,12 +123,14 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
         sale.payment_method = payment_method
         sale.mpesa_reference = mpesa_reference
 
-        db.commit()
-        db.refresh(sale)
+        sale.receipt_number = f"RCPT-{int(time.time())}"
+        sale.status = "paid" if amount_paid >= total else "pending"
 
         if hasattr(sale, "record_ledger_entries"):
             sale.record_ledger_entries(db)
-            db.commit()
+
+        db.commit()
+        db.refresh(sale)
 
         return build_receipt(sale)
 
@@ -90,7 +144,6 @@ def record_sale(data: dict, db: Session = Depends(get_db)):
 # =========================
 @router.get("/")
 def list_sales(db: Session = Depends(get_db)):
-
     sales = db.query(Sale).order_by(Sale.id.desc()).all()
 
     return [
@@ -113,7 +166,6 @@ def list_sales(db: Session = Depends(get_db)):
 # =========================
 @router.get("/{sale_id}")
 def get_sale(sale_id: int, db: Session = Depends(get_db)):
-
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
 
     if not sale:
@@ -127,7 +179,6 @@ def get_sale(sale_id: int, db: Session = Depends(get_db)):
 # =========================
 @router.get("/summary/today")
 def today_summary(db: Session = Depends(get_db)):
-
     today = date.today()
 
     result = db.query(
@@ -155,7 +206,6 @@ def today_summary(db: Session = Depends(get_db)):
 # =========================
 @router.get("/reports/daily")
 def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
-
     now = datetime.now()
 
     if range == "today":
@@ -183,7 +233,6 @@ def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
 # =========================
 @router.get("/reports/top-products")
 def top_products(db: Session = Depends(get_db)):
-
     results = (
         db.query(
             SaleItem.product_id,
@@ -204,7 +253,6 @@ def top_products(db: Session = Depends(get_db)):
 # =========================
 @router.get("/reports/worst-products")
 def worst_products(db: Session = Depends(get_db)):
-
     results = (
         db.query(
             SaleItem.product_id,
@@ -225,7 +273,6 @@ def worst_products(db: Session = Depends(get_db)):
 # =========================
 @router.get("/reports/cashier-performance")
 def cashier_performance(db: Session = Depends(get_db)):
-
     results = db.query(
         Sale.user_id,
         func.count(Sale.id),

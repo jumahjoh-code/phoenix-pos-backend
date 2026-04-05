@@ -1,33 +1,19 @@
-import { authFetch } from "../core/api/apiClient";
+import api from "../core/api"; // adjust if your path differs
 
-// =========================
-// 🧾 COMPLETE SALE
-// =========================
-export const completeSale = async (cartItems, total) => {
+// ==========================
+// COMPLETE SALE (NEW CORE)
+// ==========================
+export const completeSale = async (saleData) => {
   try {
-    const payload = {
-      items: cartItems.map((item) => ({
-        product_id: item.id,
-        quantity: Number(item.quantity),
-        price: Number(item.price),
-      })),
-      total: Number(total),
-    };
+    console.log("🧾 COMPLETE SALE PAYLOAD:", saleData);
 
-    console.log("SALE PAYLOAD:", payload);
+    const response = await api.post("/sales/complete", saleData);
 
-    const res = await authFetch("/sales/", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    console.log("✅ COMPLETE SALE RESPONSE:", response.data);
 
-    const data = await res.json();
-
-    console.log("SALE RESPONSE:", data);
-
-    return data;
+    return response.data;
   } catch (error) {
-    console.error("❌ SALE ERROR:", error);
-    return null;
+    console.error("❌ COMPLETE SALE ERROR:", error.response?.data || error.message);
+    throw error;
   }
 };
