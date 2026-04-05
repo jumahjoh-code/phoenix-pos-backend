@@ -2,13 +2,12 @@ import React from "react";
 
 export default function PaymentPanel({
   total = 0,
-  cashReceived = 0,
+  cashReceived = "",
   setCashReceived,
   change = 0,
   completeSale,
   disabled = false,
 
-  // 🔥 NEW PROPS
   onFocusPayment,
   onBlurPayment
 }) {
@@ -21,11 +20,8 @@ export default function PaymentPanel({
         type="number"
         placeholder="Cash received"
         value={cashReceived}
-        onChange={(e) =>
-          setCashReceived(parseFloat(e.target.value) || 0)
-        }
+        onChange={(e) => setCashReceived(e.target.value)} // ✅ FIXED
 
-        // 🔥 THIS IS THE CRITICAL FIX
         onFocus={onFocusPayment}
         onBlur={onBlurPayment}
 

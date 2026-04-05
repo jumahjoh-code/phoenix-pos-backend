@@ -21,7 +21,10 @@ import { syncOfflineSales } from "../core/offline/syncService";
 export default function POSScreen() {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
-  const [cashReceived, setCashReceived] = useState(0);
+
+  // 🔒 IMPORTANT: keep as STRING (prevents mutation bugs)
+  const [cashReceived, setCashReceived] = useState("");
+
   const [receipt, setReceipt] = useState(null);
 
   const [processing, setProcessing] = useState(false);
@@ -142,17 +145,23 @@ export default function POSScreen() {
   );
 
   // =========================
-  // COMPLETE SALE (NEW FLOW)
+  // 💰 SAFE DERIVED VALUES
+  // =========================
+  const numericCash = Number(cashReceived || 0);
+  const change = numericCash - total;
+
+  // =========================
+  // COMPLETE SALE
   // =========================
   const handleCashPayment = async () => {
     if (processing) return;
 
-    if (!cashReceived || cashReceived <= 0) {
+    if (!numericCash || numericCash <= 0) {
       alert("Enter valid cash");
       return;
     }
 
-    if (cashReceived < total) {
+    if (numericCash < total) {
       alert("Insufficient cash");
       return;
     }
@@ -168,7 +177,7 @@ export default function POSScreen() {
         })),
         total: total,
         payment: {
-          amount: Number(cashReceived),
+          amount: numericCash,
           method: "cash",
         },
       };
@@ -182,14 +191,16 @@ export default function POSScreen() {
       // ✅ Show receipt
       setReceipt(result);
 
-      // ✅ Reset POS
+      // ✅ Reset ONLY after success
       setCart([]);
-      setCashReceived(0);
+      setCashReceived("");
       setIsPaying(false);
 
     } catch (err) {
       console.error(err);
       alert("Sale failed");
+
+      // ❌ DO NOT modify cashReceived here
     } finally {
       setProcessing(false);
     }
@@ -251,8 +262,8 @@ export default function POSScreen() {
         <PaymentPanel
           total={total}
           cashReceived={cashReceived}
-          setCashReceived={(v) => setCashReceived(Number(v))}
-          change={cashReceived - total}
+          setCashReceived={setCashReceived} // ✅ no Number()
+          change={change}
           completeSale={handleCashPayment}
           disabled={cart.length === 0 || processing}
           onFocusPayment={() => setIsPaying(true)}
