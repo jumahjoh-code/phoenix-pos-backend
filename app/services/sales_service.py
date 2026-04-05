@@ -15,7 +15,9 @@ def create_sale(db, items, total, amount_paid, user_id=None):
     # =========================
     for item in items:
         product = db.execute(
-            select(Product).where(Product.id == item["product_id"]).with_for_update()
+            select(Product)
+            .where(Product.id == item["product_id"])
+            .with_for_update()
         ).scalar_one_or_none()
 
         if not product:
@@ -65,12 +67,20 @@ def create_sale(db, items, total, amount_paid, user_id=None):
         # Deduct stock
         product.stock_quantity -= quantity
 
-        db.add(SaleItem(
+        sale_item = SaleItem(
             sale_id=sale.id,
             product_id=product.id,
             quantity=quantity,
             price=item["price"],
             cost_price=product.cost_price
-        ))
+        )
+
+        db.add(sale_item)
+
+        # 🔥 CRITICAL FIX
+        sale.items.append(sale_item)
+
+    # 🔥 Ensure relationship is flushed
+    db.flush()
 
     return sale
