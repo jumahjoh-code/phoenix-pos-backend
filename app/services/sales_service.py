@@ -1,3 +1,5 @@
+from sqlalchemy import select
+from fastapi import HTTPException
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.product import Product
@@ -6,58 +8,69 @@ from app.models.product import Product
 def create_sale(db, items, total, amount_paid, user_id=None):
 
     cost_total = 0
+    prepared_items = []
 
     # =========================
-    # CREATE SALE
+    # 🔒 LOCK + VALIDATE STOCK
+    # =========================
+    for item in items:
+        product = db.execute(
+            select(Product).where(Product.id == item["product_id"]).with_for_update()
+        ).scalar_one_or_none()
+
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        quantity = float(item["quantity"])
+
+        if quantity <= 0:
+            raise HTTPException(status_code=400, detail="Invalid quantity")
+
+        if product.stock_quantity < quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{product.name} out of stock"
+            )
+
+        prepared_items.append({
+            "product": product,
+            "quantity": quantity,
+            "price": float(item.get("price", product.retail_price))
+        })
+
+        cost_total += product.cost_price * quantity
+
+    # =========================
+    # 🧾 CREATE SALE
     # =========================
     sale = Sale(
         total_amount=total,
         amount_paid=amount_paid,
         balance=total - amount_paid,
-        status="completed",
-        user_id=user_id  # ✅ FIXED
+        cost_total=cost_total,
+        profit=total - cost_total,
+        user_id=user_id
     )
 
     db.add(sale)
-    db.flush()
+    db.flush()  # ensures sale.id
 
     # =========================
-    # PROCESS ITEMS
+    # 📦 CREATE ITEMS + DEDUCT STOCK
     # =========================
-    for item in items:
-        product = db.query(Product).filter(Product.id == item["product_id"]).first()
-
-        if not product:
-            raise Exception("Product not found")
-
+    for item in prepared_items:
+        product = item["product"]
         quantity = item["quantity"]
 
-        # ✅ STOCK CONTROL (IMPORTANT)
-        if product.stock_quantity < quantity:
-            raise Exception(f"{product.name} out of stock")
-
-        # Reduce stock
+        # Deduct stock
         product.stock_quantity -= quantity
 
-        item_total_cost = product.cost_price * quantity
-        cost_total += item_total_cost
-
-        sale_item = SaleItem(
+        db.add(SaleItem(
             sale_id=sale.id,
             product_id=product.id,
             quantity=quantity,
-            price=product.retail_price,
+            price=item["price"],
             cost_price=product.cost_price
-        )
-
-        db.add(sale_item)
-
-    # =========================
-    # UPDATE PROFIT BASE
-    # =========================
-    sale.cost_total = cost_total
-
-    db.commit()
-    db.refresh(sale)
+        ))
 
     return sale

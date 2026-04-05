@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date, datetime, timedelta
-import time
+import uuid
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
@@ -48,7 +48,7 @@ def build_receipt(sale, current_user=None):
 
 
 # =========================
-# COMPLETE SALE (ATOMIC)
+# COMPLETE SALE (PRODUCTION SAFE)
 # =========================
 @router.post("/complete")
 def complete_sale(
@@ -64,79 +64,72 @@ def complete_sale(
     payment_method = payment.get("method", "cash")
     mpesa_reference = payment.get("mpesa_reference")
 
+    # =========================
+    # 🔒 VALIDATION (ROUTER LEVEL ONLY)
+    # =========================
     if not items or not isinstance(items, list):
         raise HTTPException(status_code=400, detail="Items must be provided")
 
     if total is None:
         raise HTTPException(status_code=400, detail="Total is required")
 
+    if amount_paid < 0:
+        raise HTTPException(status_code=400, detail="Invalid payment amount")
+
+    if payment_method == "mpesa" and not mpesa_reference:
+        raise HTTPException(status_code=400, detail="Mpesa reference required")
+
     try:
+        # =========================
+        # 🔥 CORE BUSINESS LOGIC (SERVICE)
+        # =========================
         sale = create_sale(
-            db,
-            items,
-            total,
-            amount_paid,
-            current_user.id
+            db=db,
+            items=items,
+            total=total,
+            amount_paid=amount_paid,
+            user_id=current_user.id
         )
 
+        # =========================
+        # 💳 PAYMENT DETAILS
+        # =========================
         sale.payment_method = payment_method
         sale.mpesa_reference = mpesa_reference
 
-        sale.receipt_number = f"RCPT-{int(time.time())}"
-        sale.status = "paid" if amount_paid >= total else "pending"
+        # =========================
+        # 🧾 RECEIPT + STATUS
+        # =========================
+        sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
 
+        if amount_paid >= total:
+            sale.status = "paid"
+        elif amount_paid > 0:
+            sale.status = "partial"
+        else:
+            sale.status = "pending"
+
+        # =========================
+        # 💰 LEDGER
+        # =========================
         if hasattr(sale, "record_ledger_entries"):
             sale.record_ledger_entries(db)
 
+        # =========================
+        # ✅ FINAL COMMIT (ONLY HERE)
+        # =========================
         db.commit()
         db.refresh(sale)
 
         return build_receipt(sale, current_user)
 
-    except Exception as e:
+    except HTTPException:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# =========================
-# RECORD SALE (LEGACY - OPTIONAL)
-# =========================
-@router.post("/")
-def record_sale(data: dict, db: Session = Depends(get_db)):
-    items = data.get("items")
-    total = data.get("total")
-    amount_paid = float(data.get("amount_paid", 0))
-    user_id = data.get("user_id")
-
-    payment_method = data.get("payment_method", "cash")
-    mpesa_reference = data.get("mpesa_reference")
-
-    if not items or not isinstance(items, list):
-        raise HTTPException(status_code=400, detail="Items must be provided")
-
-    if total is None:
-        raise HTTPException(status_code=400, detail="Total is required")
-
-    try:
-        sale = create_sale(db, items, total, amount_paid, user_id)
-
-        sale.payment_method = payment_method
-        sale.mpesa_reference = mpesa_reference
-
-        sale.receipt_number = f"RCPT-{int(time.time())}"
-        sale.status = "paid" if amount_paid >= total else "pending"
-
-        if hasattr(sale, "record_ledger_entries"):
-            sale.record_ledger_entries(db)
-
-        db.commit()
-        db.refresh(sale)
-
-        return build_receipt(sale)
+        raise
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =========================
@@ -175,11 +168,14 @@ def get_sale(sale_id: int, db: Session = Depends(get_db)):
 
 
 # =========================
-# TODAY SUMMARY
+# TODAY SUMMARY (FIXED RANGE)
 # =========================
 @router.get("/summary/today")
 def today_summary(db: Session = Depends(get_db)):
     today = date.today()
+
+    start = datetime.combine(today, datetime.min.time())
+    end = datetime.combine(today, datetime.max.time())
 
     result = db.query(
         func.count(Sale.id),
@@ -187,7 +183,7 @@ def today_summary(db: Session = Depends(get_db)):
         func.coalesce(func.sum(Sale.cost_total), 0),
         func.coalesce(func.sum(Sale.amount_paid), 0)
     ).filter(
-        func.date(Sale.created_at) == today
+        Sale.created_at.between(start, end)
     ).first()
 
     transactions, total_sales, total_cost, cash_collected = result
