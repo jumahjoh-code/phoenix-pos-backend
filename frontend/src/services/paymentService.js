@@ -8,7 +8,6 @@ export const processCashPayment = async (saleId, amount) => {
     const payload = {
       sale_id: saleId,
       amount: Number(amount),
-      method: "cash",
     };
 
     console.log("PAYMENT PAYLOAD:", payload);
@@ -21,6 +20,11 @@ export const processCashPayment = async (saleId, amount) => {
     const data = await res.json();
 
     console.log("PAYMENT RESPONSE:", data);
+
+    // ✅ HANDLE FAILURE PROPERLY
+    if (!res.ok || !data.success) {
+      throw new Error(data.detail || "Payment failed");
+    }
 
     return data;
   } catch (error) {

@@ -8,14 +8,23 @@ class Payment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False)
+    # 🔗 LINK TO SALE
+    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False, index=True)
 
-    payment_method = Column(String, nullable=False)  # cash, mpesa, card
+    # 💳 PAYMENT METHOD
+    # cash, mpesa, card
+    payment_method = Column(String, nullable=False, index=True)
+
+    # 💰 AMOUNT PAID
     amount = Column(Float, nullable=False)
 
-    status = Column(String, default="pending")  # pending, completed, failed
+    # 📌 STATUS
+    # pending, completed, failed
+    status = Column(String, default="completed", nullable=False, index=True)
 
-    reference = Column(String, nullable=True)  # M-Pesa receipt number
+    # 🔗 OPTIONAL REFERENCES (MPESA / CARD)
+    reference = Column(String, nullable=True, index=True)
     checkout_request_id = Column(String, nullable=True, index=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # ⏱️ TIMESTAMP
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
