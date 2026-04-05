@@ -11,7 +11,7 @@ import CartTable from "../components/CartTable";
 import PaymentPanel from "../components/PaymentPanel";
 import ReceiptModal from "../components/ReceiptModal";
 
-// ✅ FIXED SERVICES
+// SERVICES
 import { getProducts } from "../core/services/productService";
 import { completeSale } from "../services/salesService";
 import { processCashPayment } from "../services/paymentService";
@@ -34,10 +34,6 @@ export default function POSScreen() {
   const [error, setError] = useState(null);
 
   const barcodeRef = useRef();
-  const user = JSON.parse(localStorage.getItem("user"));
-
-  const formatKES = (v) =>
-    "KES " + Number(v || 0).toLocaleString();
 
   // =========================
   // LOAD PRODUCTS
@@ -75,7 +71,7 @@ export default function POSScreen() {
   }, []);
 
   // =========================
-  // ADD PRODUCT
+  // CART LOGIC
   // =========================
   const addProduct = (input) => {
     if (processing) return false;
@@ -150,7 +146,7 @@ export default function POSScreen() {
   );
 
   // =========================
-  // CASH PAYMENT (FIXED)
+  // CASH PAYMENT (REFACTORED)
   // =========================
   const handleCashPayment = async () => {
     if (processing) return;
@@ -165,7 +161,7 @@ export default function POSScreen() {
     try {
       let sale = pendingSale;
 
-      // ✅ CREATE SALE FIRST
+      // ✅ STEP 1: CREATE SALE
       if (!sale) {
         sale = await completeSale(
           cart.map((item) => ({
@@ -176,26 +172,29 @@ export default function POSScreen() {
           total
         );
 
-        if (!sale || !sale.id) {
+        console.log("SALE RESULT:", sale);
+
+        // ✅ FIXED SUCCESS CHECK
+        if (!sale || !sale.sale_id) {
           alert("Sale failed");
           setProcessing(false);
           return;
         }
 
         setPendingSale(sale);
-        setRemaining(sale.total_amount);
+        setRemaining(Number(sale.total || 0));
       }
 
-      // ✅ PROCESS PAYMENT
-      await processCashPayment(sale.id, Number(cashReceived));
+      // ✅ STEP 2: PROCESS PAYMENT
+      await processCashPayment(sale.sale_id, Number(cashReceived));
 
       const newRemaining =
-        (sale.total_amount || remaining) - Number(cashReceived);
+        (sale.total || remaining) - Number(cashReceived);
 
       setRemaining(newRemaining);
       setCashReceived(0);
 
-      // ✅ COMPLETE SALE
+      // ✅ STEP 3: COMPLETE SALE
       if (newRemaining <= 0) {
         setReceipt(sale);
         setCart([]);
