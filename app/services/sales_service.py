@@ -64,23 +64,19 @@ def create_sale(db, items, total, amount_paid, user_id=None):
         product = item["product"]
         quantity = item["quantity"]
 
-        # Deduct stock
         product.stock_quantity -= quantity
 
+        # ✅ NO sale_id here
         sale_item = SaleItem(
-            sale_id=sale.id,
             product_id=product.id,
             quantity=quantity,
             price=item["price"],
             cost_price=product.cost_price
         )
 
-        db.add(sale_item)
-
-        # 🔥 CRITICAL FIX
+        # ✅ Attach via relationship ONLY
         sale.items.append(sale_item)
 
-    # 🔥 Ensure relationship is flushed
     db.flush()
 
     return sale
