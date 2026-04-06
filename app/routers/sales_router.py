@@ -7,6 +7,11 @@ import uuid
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.services.sales_service import create_sale
+from app.services.payment_service import (
+    mark_cash_payment,
+    create_payment,
+    sync_sale_financials
+)
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.user import User
@@ -42,10 +47,6 @@ def build_receipt(sale, current_user=None):
         "profit": float(sale.profit),
         "amount_paid": float(sale.amount_paid),
         "balance": float(sale.balance),
-
-        # ✅ derive payment status from actual data
-        "payment_method": "cash" if sale.amount_paid > 0 else "pending",
-
         "status": sale.status
     }
 
@@ -61,10 +62,7 @@ def complete_sale(
 ):
     items = data.get("items")
     total = data.get("total")
-    payment = data.get("payment", {})
-
-    amount_paid = float(payment.get("amount", 0))
-    payment_method = payment.get("method", "cash")
+    payments = data.get("payments", [])
 
     # =========================
     # VALIDATION
@@ -75,12 +73,9 @@ def complete_sale(
     if total is None:
         raise HTTPException(status_code=400, detail="Total is required")
 
-    if amount_paid < 0:
-        raise HTTPException(status_code=400, detail="Invalid payment amount")
-
     try:
         # =========================
-        # 🧾 CREATE SALE (NO PAYMENT HERE)
+        # 🧾 CREATE SALE
         # =========================
         sale = create_sale(
             db=db,
@@ -90,26 +85,34 @@ def complete_sale(
         )
 
         # =========================
-        # 💳 HANDLE PAYMENT
+        # 💳 HANDLE PAYMENTS
         # =========================
-        if payment_method == "cash" and amount_paid > 0:
-            from app.services.payment_service import mark_cash_payment
+        for p in payments:
+            method = p.get("method")
+            amount = float(p.get("amount", 0))
 
-            mark_cash_payment(
-                db=db,
-                sale_id=sale.id,
-                amount=amount_paid
-            )
+            if amount <= 0:
+                continue
 
-        elif payment_method == "mpesa":
-            from app.services.payment_service import create_payment
+            if method == "cash":
+                mark_cash_payment(
+                    db=db,
+                    sale_id=sale.id,
+                    amount=amount
+                )
 
-            create_payment(
-                db=db,
-                sale_id=sale.id,
-                amount=amount_paid,
-                method="mpesa"
-            )
+            elif method == "mpesa":
+                create_payment(
+                    db=db,
+                    sale_id=sale.id,
+                    amount=amount,
+                    method="mpesa"
+                )
+
+        # =========================
+        # 🔥 SYNC FINANCIALS
+        # =========================
+        sync_sale_financials(db, sale.id)
 
         # =========================
         # 🧾 RECEIPT NUMBER
@@ -117,12 +120,12 @@ def complete_sale(
         sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
 
         # =========================
-        # ✅ SINGLE COMMIT (CRITICAL)
+        # ✅ SINGLE COMMIT
         # =========================
         db.commit()
 
         # =========================
-        # 🔥 RELOAD WITH RELATIONS
+        # 🔄 RELOAD WITH RELATIONS
         # =========================
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
@@ -155,7 +158,6 @@ def list_sales(db: Session = Depends(get_db)):
             "total_amount": float(sale.total_amount),
             "amount_paid": float(sale.amount_paid),
             "balance": float(sale.balance),
-            "payment_method": "cash" if sale.amount_paid > 0 else "pending",
             "status": sale.status
         }
         for sale in sales
