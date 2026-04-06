@@ -1,4 +1,5 @@
 print("🔥 SALES ROUTER EXECUTED 🔥")
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
@@ -25,6 +26,22 @@ router = APIRouter(
 
 
 # =========================
+# UTIL: DATE RANGE HANDLER
+# =========================
+def get_start_date(range: str):
+    now = datetime.now()
+
+    if range == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif range == "7d":
+        return now - timedelta(days=7)
+    elif range == "30d":
+        return now - timedelta(days=30)
+
+    return now - timedelta(days=7)
+
+
+# =========================
 # HELPER: BUILD RECEIPT
 # =========================
 def build_receipt(sale, current_user=None):
@@ -32,7 +49,9 @@ def build_receipt(sale, current_user=None):
         "sale_id": sale.id,
         "receipt_number": sale.receipt_number,
         "date": sale.created_at,
-        "user": current_user.username if current_user else (sale.user.username if sale.user else None),
+        "user": current_user.username if current_user else (
+            sale.user.username if sale.user else None
+        ),
         "items": [
             {
                 "product_id": item.product_id,
@@ -72,11 +91,6 @@ def complete_sale(
         raise HTTPException(status_code=400, detail="Total is required")
 
     try:
-        # =========================
-        # 🧾 CREATE SALE
-        # =========================
-        print("STEP 1: before create_sale")
-
         sale = create_sale(
             db=db,
             items=items,
@@ -84,17 +98,10 @@ def complete_sale(
             user_id=current_user.id
         )
 
-        print("STEP 2: after create_sale", type(sale))
-
         sale_id = sale.id
-        print("STEP 3: sale_id ok", sale_id)
 
-        # =========================
-        # 💳 HANDLE PAYMENTS
-        # =========================
+        # HANDLE PAYMENTS
         for p in payments:
-            print("STEP 4: before payment", p)
-
             method = p.get("method")
             amount = float(p.get("amount", 0))
 
@@ -102,11 +109,7 @@ def complete_sale(
                 continue
 
             if method == "cash":
-                mark_cash_payment(
-                    db=db,
-                    sale_id=sale_id,
-                    amount=amount
-                )
+                mark_cash_payment(db=db, sale_id=sale_id, amount=amount)
 
             elif method == "mpesa":
                 create_payment(
@@ -116,31 +119,15 @@ def complete_sale(
                     method="mpesa"
                 )
 
-            print("STEP 5: after payment")
-
-        # =========================
-        # 🔥 SYNC FINANCIALS
-        # =========================
-        print("STEP 6: before sync")
+        # SYNC FINANCIALS
         sync_sale_financials(db, sale_id)
-        print("STEP 7: after sync")
 
-        # =========================
-        # 🧾 RECEIPT NUMBER
-        # =========================
-        print("STEP 8: before receipt number")
+        # RECEIPT NUMBER
         sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
-        print("STEP 9: after receipt number")
 
-        # =========================
-        # ✅ SINGLE COMMIT
-        # =========================
         db.commit()
-        print("STEP 10: after commit")
 
-        # =========================
-        # 🔄 RELOAD WITH RELATIONS
-        # =========================
+        # RELOAD
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
             joinedload(Sale.user)
@@ -156,6 +143,7 @@ def complete_sale(
         db.rollback()
         print("🔥 FINAL ERROR:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # =========================
 # LIST SALES
@@ -229,16 +217,7 @@ def today_summary(db: Session = Depends(get_db)):
 # =========================
 @router.get("/reports/daily")
 def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
-    now = datetime.now()
-
-    if range == "today":
-        start_date = now - timedelta(days=1)
-    elif range == "7d":
-        start_date = now - timedelta(days=7)
-    elif range == "30d":
-        start_date = now - timedelta(days=30)
-    else:
-        start_date = now - timedelta(days=7)
+    start_date = get_start_date(range)
 
     sales = db.query(Sale).filter(Sale.created_at >= start_date).all()
 
@@ -249,3 +228,37 @@ def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
         totals[d] = totals.get(d, 0) + float(sale.total_amount)
 
     return [{"date": d, "total": t} for d, t in sorted(totals.items())]
+
+
+# =========================
+# CASHIER PERFORMANCE REPORT (🔥 FIXED)
+# =========================
+@router.get("/reports/cashier-performance")
+def cashier_performance(range: str = "today", db: Session = Depends(get_db)):
+    print("🔥 CASHIER PERFORMANCE ENDPOINT HIT")
+
+    start_date = get_start_date(range)
+
+    results = db.query(
+        User.username,
+        func.count(Sale.id),
+        func.coalesce(func.sum(Sale.total_amount), 0)
+    ).join(User, Sale.user_id == User.id)\
+     .filter(Sale.created_at >= start_date)\
+     .group_by(User.username)\
+     .all()
+
+    data = [
+        {
+            "cashier": r[0],
+            "transactions": int(r[1]),
+            "total_sales": float(r[2])
+        }
+        for r in results
+    ]
+
+    return {
+        "range": range,
+        "data": data,
+        "total_sales": sum(d["total_sales"] for d in data)
+    }
