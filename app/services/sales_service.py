@@ -1,3 +1,4 @@
+print("🔥 SALES SERVICE LOADED 🔥")
 from sqlalchemy import select
 from fastapi import HTTPException
 from app.models.sale import Sale
