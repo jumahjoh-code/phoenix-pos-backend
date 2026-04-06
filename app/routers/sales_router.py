@@ -84,9 +84,10 @@ def complete_sale(
             user_id=current_user.id
         )
 
+        print("SALE TYPE:", type(sale))
         # 🔥 CRITICAL FIX: normalize to ORM
         sale_id = sale.id
-        
+
         # =========================
         # 💳 HANDLE PAYMENTS
         # =========================
