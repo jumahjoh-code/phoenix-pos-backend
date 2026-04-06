@@ -114,9 +114,6 @@ def mark_cash_payment(
 
         db.add(ledger_entry)
 
-        # 🔥 Sync financials
-        sync_sale_financials(db, sale_id)
-
         return payment
 
     except Exception as e:
