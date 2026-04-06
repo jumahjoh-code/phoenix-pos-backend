@@ -64,9 +64,6 @@ def complete_sale(
     total = data.get("total")
     payments = data.get("payments", [])
 
-    # =========================
-    # VALIDATION
-    # =========================
     if not items or not isinstance(items, list):
         raise HTTPException(status_code=400, detail="Items must be provided")
 
@@ -77,6 +74,8 @@ def complete_sale(
         # =========================
         # 🧾 CREATE SALE
         # =========================
+        print("STEP 1: before create_sale")
+
         sale = create_sale(
             db=db,
             items=items,
@@ -84,14 +83,17 @@ def complete_sale(
             user_id=current_user.id
         )
 
-        print("SALE TYPE:", type(sale))
-        # 🔥 CRITICAL FIX: normalize to ORM
+        print("STEP 2: after create_sale", type(sale))
+
         sale_id = sale.id
+        print("STEP 3: sale_id ok", sale_id)
 
         # =========================
         # 💳 HANDLE PAYMENTS
         # =========================
         for p in payments:
+            print("STEP 4: before payment", p)
+
             method = p.get("method")
             amount = float(p.get("amount", 0))
 
@@ -113,20 +115,27 @@ def complete_sale(
                     method="mpesa"
                 )
 
+            print("STEP 5: after payment")
+
         # =========================
         # 🔥 SYNC FINANCIALS
         # =========================
+        print("STEP 6: before sync")
         sync_sale_financials(db, sale_id)
+        print("STEP 7: after sync")
 
         # =========================
         # 🧾 RECEIPT NUMBER
         # =========================
+        print("STEP 8: before receipt number")
         sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
+        print("STEP 9: after receipt number")
 
         # =========================
         # ✅ SINGLE COMMIT
         # =========================
         db.commit()
+        print("STEP 10: after commit")
 
         # =========================
         # 🔄 RELOAD WITH RELATIONS
@@ -144,8 +153,8 @@ def complete_sale(
 
     except Exception as e:
         db.rollback()
+        print("🔥 FINAL ERROR:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # =========================
 # LIST SALES
