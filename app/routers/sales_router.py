@@ -84,6 +84,9 @@ def complete_sale(
             user_id=current_user.id
         )
 
+        # 🔥 CRITICAL FIX: normalize to ORM
+        sale_id = sale.id
+        
         # =========================
         # 💳 HANDLE PAYMENTS
         # =========================
@@ -97,14 +100,14 @@ def complete_sale(
             if method == "cash":
                 mark_cash_payment(
                     db=db,
-                    sale_id=sale.id,
+                    sale_id=sale_id,
                     amount=amount
                 )
 
             elif method == "mpesa":
                 create_payment(
                     db=db,
-                    sale_id=sale.id,
+                    sale_id=sale_id,
                     amount=amount,
                     method="mpesa"
                 )
@@ -112,7 +115,7 @@ def complete_sale(
         # =========================
         # 🔥 SYNC FINANCIALS
         # =========================
-        sync_sale_financials(db, sale.id)
+        sync_sale_financials(db, sale_id)
 
         # =========================
         # 🧾 RECEIPT NUMBER
@@ -130,7 +133,7 @@ def complete_sale(
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
             joinedload(Sale.user)
-        ).filter(Sale.id == sale.id).first()
+        ).filter(Sale.id == sale_id).first()
 
         return build_receipt(sale, current_user)
 

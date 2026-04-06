@@ -21,6 +21,8 @@ def create_payment(
     )
 
     db.add(payment)
+    db.flush()  # 🔥 FIX
+
     return payment
 
 
@@ -39,7 +41,6 @@ def attach_checkout_request_id(
 
     payment.checkout_request_id = checkout_request_id
 
-    # ✅ DO NOT COMMIT HERE
     db.flush()
 
     return payment
@@ -91,23 +92,23 @@ def mark_cash_payment(
         )
 
         db.add(payment)
+        db.flush()  # 🔥 CRITICAL FIX
 
-        # 📒 Ledger entry
+        # 📒 Ledger entry (LINKED)
         ledger_entry = Ledger(
             type="sale",
             amount=amount,
             method="cash",
             reference=None,
-            description=f"Cash payment for sale #{sale_id}"
+            description=f"Cash payment for sale #{sale_id}",
+            sale_id=sale_id,
+            payment_id=payment.id   # 🔥 FIXES YOUR ERROR
         )
 
         db.add(ledger_entry)
 
         # 🔥 Sync financials
         sync_sale_financials(db, sale_id)
-
-        # ✅ DO NOT COMMIT HERE (router handles commit)
-        db.flush()
 
         return payment
 
@@ -117,7 +118,7 @@ def mark_cash_payment(
 
 
 # =========================
-# 🔷 MARK PAYMENT SUCCESS (MPESA CALLBACK)
+# 🔷 MARK PAYMENT SUCCESS (MPESA)
 # =========================
 def mark_payment_success(
     db: Session,
@@ -134,21 +135,21 @@ def mark_payment_success(
     payment.status = "completed"
     payment.reference = mpesa_code
 
-    # 📒 Ledger entry
+    # 📒 Ledger entry (LINKED)
     ledger_entry = Ledger(
         type="sale",
         amount=payment.amount,
         method="mpesa",
         reference=mpesa_code,
-        description=f"M-Pesa payment for sale #{payment.sale_id}"
+        description=f"M-Pesa payment for sale #{payment.sale_id}",
+        sale_id=payment.sale_id,
+        payment_id=payment.id   # 🔥 FIX
     )
 
     db.add(ledger_entry)
 
-    # 🔥 Sync sale
     sync_sale_financials(db, payment.sale_id)
 
-    # ✅ MPESA is async → commit here is OK
     db.commit()
     db.refresh(payment)
 
