@@ -60,12 +60,19 @@ def sync_sale_financials(db: Session, sale_id: int):
         Payment.status == "completed"
     ).all()
 
-    total_paid = sum(p.amount for p in payments)
+    total_paid = sum(float(p.amount) for p in payments)
 
-    sale.update_financials(total_paid)
+    sale.amount_paid = total_paid
+    sale.balance = float(sale.total_amount) - total_paid
+
+    if sale.balance <= 0:
+        sale.status = "paid"
+    else:
+        sale.status = "partial"
+
+    db.flush()
 
     return sale
-
 
 # =========================
 # 🔥 MARK CASH PAYMENT
