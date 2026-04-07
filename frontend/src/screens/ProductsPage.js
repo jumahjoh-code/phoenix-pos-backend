@@ -249,3 +249,72 @@ export default function ProductsPage() {
     </div>
   );
 }
+
+const styles = {
+  page: {
+    padding: 20,
+    background: "#f9fafb",
+    minHeight: "100vh"
+  },
+
+  title: {
+    marginBottom: 15
+  },
+
+  card: {
+    background: "#fff",
+    padding: 15,
+    borderRadius: 10,
+    border: "1px solid #eee",
+    marginBottom: 15
+  },
+
+  input: {
+    padding: 10,
+    borderRadius: 6,
+    border: "1px solid #ccc",
+    marginBottom: 10,
+    width: "100%"
+  },
+
+  form: {
+    display: "flex",
+    flexDirection: "column"
+  },
+
+  primaryBtn: {
+    padding: 10,
+    borderRadius: 6,
+    border: "none",
+    background: "#16a34a",
+    color: "#fff",
+    cursor: "pointer",
+    fontWeight: "bold"
+  },
+
+  dangerBtn: {
+    padding: 6,
+    borderRadius: 6,
+    border: "none",
+    background: "#dc2626",
+    color: "#fff",
+    cursor: "pointer"
+  },
+
+  table: {
+    width: "100%",
+    borderCollapse: "collapse"
+  },
+
+  success: {
+    background: "#dcfce7",
+    color: "#166534",
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 10
+  },
+
+  msg: {
+    padding: 20
+  }
+};
