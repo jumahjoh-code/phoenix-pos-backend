@@ -83,7 +83,7 @@ export default function POSScreen() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (navigator.onLine && !processing) {
-        syncOfflineSales();
+        syncQueue(); // ✅ unified engine
       }
     }, 10000);
 
