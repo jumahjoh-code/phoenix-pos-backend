@@ -24,9 +24,9 @@ const refreshAccessToken = async () => {
     const res = await fetch(`${API}/auth/refresh`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({ refresh_token })
+      body: JSON.stringify({ refresh_token }),
     });
 
     if (!res.ok) return null;
@@ -35,7 +35,6 @@ const refreshAccessToken = async () => {
     localStorage.setItem("access_token", data.access_token);
 
     return data.access_token;
-
   } catch (err) {
     console.error("Refresh failed:", err);
     return null;
@@ -53,16 +52,16 @@ const queueRequest = (endpoint, options) => {
       headers: {
         ...(options.headers || {}),
         "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`
-      }
-    }
+        Authorization: `Bearer ${getToken()}`,
+      },
+    },
   });
 
   updatePendingCount();
 };
 
 // =========================
-// 🌐 AUTH FETCH (FIXED)
+// 🌐 AUTH FETCH (FINAL)
 // =========================
 export const authFetch = async (endpoint, options = {}) => {
   let token = getToken();
@@ -73,19 +72,21 @@ export const authFetch = async (endpoint, options = {}) => {
       headers: {
         ...(options.headers || {}),
         "Content-Type": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` })
-      }
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
     });
 
-    // =========================
     // 🔄 HANDLE 401 (AUTO REFRESH)
-    // =========================
     if (res.status === 401) {
       const newToken = await refreshAccessToken();
 
       if (!newToken) {
         logout();
-        return null;
+        return {
+          ok: false,
+          error: "Session expired",
+          status: 401,
+        };
       }
 
       res = await fetch(`${API}${endpoint}`, {
@@ -93,47 +94,46 @@ export const authFetch = async (endpoint, options = {}) => {
         headers: {
           ...(options.headers || {}),
           "Content-Type": "application/json",
-          Authorization: `Bearer ${newToken}`
-        }
+          Authorization: `Bearer ${newToken}`,
+        },
       });
     }
 
-    // =========================
-    // ✅ PARSE RESPONSE
-    // =========================
-    const data = await res.json().catch(() => ({}));
-
-    // =========================
-    // ❌ HANDLE API ERRORS PROPERLY
-    // =========================
-    if (!res.ok) {
-      console.error("❌ API ERROR:", data);
-
-      throw new Error(data.detail || "Request failed");
+    // ✅ SAFE PARSE
+    let data = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
     }
 
-    // =========================
-    // ✅ SUCCESS RESPONSE
-    // =========================
+    // ❌ HANDLE API ERRORS
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data?.detail || "Request failed",
+        status: res.status,
+      };
+    }
+
+    // ✅ SUCCESS
     return {
       ok: true,
-      data
+      data,
+      status: res.status,
     };
-
   } catch (err) {
     console.warn("⚠️ API failed → queued:", endpoint);
 
-    // =========================
     // 📥 OFFLINE FALLBACK
-    // =========================
     queueRequest(endpoint, options);
 
     return {
       ok: true,
       offline: true,
       data: {
-        message: "Saved offline. Will sync automatically."
-      }
+        message: "Saved offline. Will sync automatically.",
+      },
     };
   }
 };

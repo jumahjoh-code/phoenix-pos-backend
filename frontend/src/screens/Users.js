@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../services/api";
+import { authFetch } from "../core/api/apiClient";
 
 export default function Users({ setCurrentScreen }) {
 
@@ -33,18 +33,19 @@ export default function Users({ setCurrentScreen }) {
   // 📥 FETCH USERS
   // =========================
   const fetchUsers = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
-      const data = await api.get("/users/");
-      setUsers(data);
+    const res = await authFetch("/users/");
 
-    } catch (err) {
-      setError(err.message);
-    } finally {
+    if (!res.ok) {
+      setError(res.error || "Failed to load users");
       setLoading(false);
+      return;
     }
+
+    setUsers(res.data || []);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -85,22 +86,26 @@ export default function Users({ setCurrentScreen }) {
 
     setActionLoading(true);
 
-    try {
-      await api[editingId ? "put" : "post"](
-        editingId ? `/users/${editingId}` : "/users/",
-        form
-      );
+    const res = await authFetch(
+      editingId ? `/users/${editingId}` : "/users/",
+      {
+        method: editingId ? "PUT" : "POST",
+        body: JSON.stringify(form)
+      }
+    );
 
-      setSuccess(editingId ? "User updated" : "User created");
-
-      resetForm();
-      fetchUsers();
-
-    } catch (err) {
-      setError(err.message);
-    } finally {
+    if (!res.ok) {
+      setError(res.error || "Operation failed");
       setActionLoading(false);
+      return;
     }
+
+    setSuccess(editingId ? "User updated" : "User created");
+
+    resetForm();
+    await fetchUsers();
+
+    setActionLoading(false);
   };
 
   // =========================
@@ -131,17 +136,20 @@ export default function Users({ setCurrentScreen }) {
 
     setActionLoading(true);
 
-    try {
-      await api.delete(`/users/${id}`);
+    const res = await authFetch(`/users/${id}`, {
+      method: "DELETE"
+    });
 
-      setSuccess("User deleted");
-      fetchUsers();
-
-    } catch (err) {
-      setError(err.message);
-    } finally {
+    if (!res.ok) {
+      setError(res.error || "Delete failed");
       setActionLoading(false);
+      return;
     }
+
+    setSuccess("User deleted");
+    await fetchUsers();
+
+    setActionLoading(false);
   };
 
   // =========================

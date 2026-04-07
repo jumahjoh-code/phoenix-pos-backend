@@ -57,48 +57,51 @@ export default function Dashboard() {
   // DATA LOADER (FIXED)
   // =========================
   const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
+    setLoading(true);
+    setError("");
 
-      const [summaryRes, cashierRes, aiRes, salesRes] = await Promise.all([
-        getTodaySummary(),
-        getCashierPerformance(),
-        getDashboardSummary(),
-        getRecentSales()
-      ]);
+    const [summaryRes, cashierRes, aiRes, salesRes] = await Promise.all([
+      getTodaySummary(),
+      getCashierPerformance(),
+      getDashboardSummary(),
+      getRecentSales()
+    ]);
 
-      // ✅ AXIOS FIX
-      const summary = summaryRes?.data;
-      const cashierData = cashierRes?.data;
-      const aiData = aiRes?.data;
-      const sales = salesRes?.data;
-
-      setSummary(summary || {});
-      setCashiers(Array.isArray(cashierData?.data) ? cashierData.data : []);
-      setAI(aiData || null);
-      setSalesData(Array.isArray(sales) ? sales : []);
-
-      setInventoryValue(aiData?.inventory_value || 0);
-      setLastUpdated(new Date());
-
-      console.log("📊 Dashboard Loaded:", {
-        summary,
-        cashierData,
-        sales
+    // ❌ HANDLE ERRORS FIRST
+    if (!summaryRes.ok || !cashierRes.ok || !aiRes.ok || !salesRes.ok) {
+      console.error("❌ Dashboard API Error:", {
+        summaryRes,
+        cashierRes,
+        aiRes,
+        salesRes
       });
 
-    } catch (err) {
-      console.error("❌ Dashboard error:", err);
-
-      if (err.response) {
-        console.error("API Error:", err.response.data);
-      }
-
       setError("Failed to load dashboard");
-    } finally {
       setLoading(false);
+      return;
     }
+
+    // ✅ EXTRACT DATA
+    const summary = summaryRes.data;
+    const cashierData = cashierRes.data;
+    const aiData = aiRes.data;
+    const sales = salesRes.data;
+
+    setSummary(summary || {});
+    setCashiers(Array.isArray(cashierData?.data) ? cashierData.data : []);
+    setAI(aiData || null);
+    setSalesData(Array.isArray(sales) ? sales : []);
+
+    setInventoryValue(aiData?.inventory_value || 0);
+    setLastUpdated(new Date());
+
+    console.log("📊 Dashboard Loaded:", {
+      summary,
+      cashierData,
+      sales
+    });
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {

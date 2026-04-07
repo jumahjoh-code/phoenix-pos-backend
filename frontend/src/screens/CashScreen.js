@@ -21,24 +21,19 @@ export default function CashScreen() {
   // 📥 LOAD DATA
   // =========================
   const loadData = async () => {
-    try {
-      setError(null);
+    setError(null);
 
-      const res = await authFetch("/ledger/cash");
-      const data = await res.json();
+    const res = await authFetch("/ledger/cash");
 
-      if (!res.ok) {
-        setError(data?.detail || "Failed to load cash data");
-        return;
-      }
-
-      setHistory(data?.history || []);
-      setBalance(data?.balance || 0);
-
-    } catch (err) {
-      console.error(err);
-      setError("Server error while loading cash data");
+    if (!res.ok) {
+      setError(res.error || "Failed to load cash data");
+      return;
     }
+
+    const data = res.data;
+
+    setHistory(data?.history || []);
+    setBalance(data?.balance || 0);
   };
 
   useEffect(() => {
@@ -86,48 +81,36 @@ export default function CashScreen() {
 
     setLoading(true);
 
-    try {
-      const res = await authFetch("/ledger/cash", {
-        method: "POST",
-        body: JSON.stringify({
-          type,
-          amount: parsedAmount,
-          reason
-        })
-      });
+    const res = await authFetch("/ledger/cash", {
+      method: "POST",
+      body: JSON.stringify({
+        type,
+        amount: parsedAmount,
+        reason
+      })
+    });
 
-      const data = await res.json();
-
-      // ❌ HANDLE BACKEND ERRORS PROPERLY
-      if (!res.ok) {
-        setError(
-          data?.detail ||
-          data?.message ||
-          "Failed to record entry"
-        );
-        return;
-      }
-
-      // ✅ HANDLE OFFLINE MODE
-      if (res.offline) {
-        setSuccess("📥 Saved offline. Will sync automatically.");
-      } else {
-        setSuccess("✅ Recorded successfully");
-      }
-
-      // RESET FORM
-      setAmount("");
-      setReason("");
-
-      // RELOAD DATA
-      await loadData();
-
-    } catch (err) {
-      console.error(err);
-      setError("Server error");
-    } finally {
+    if (!res.ok) {
+      setError(res.error || "Failed to record entry");
       setLoading(false);
+      return;
     }
+
+    // ✅ HANDLE OFFLINE MODE
+    if (res.offline) {
+      setSuccess("📥 Saved offline. Will sync automatically.");
+    } else {
+      setSuccess("✅ Recorded successfully");
+    }
+
+    // RESET FORM
+    setAmount("");
+    setReason("");
+
+    // RELOAD DATA
+    await loadData();
+
+    setLoading(false);
   };
 
   // =========================

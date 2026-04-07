@@ -13,7 +13,7 @@ import ReceiptModal from "../components/ReceiptModal";
 
 // SERVICES
 import { getProducts } from "../core/services/productService";
-import { completeSale } from "../services/salesService";
+import { completeSale } from "../core/services/salesService";
 
 // OFFLINE
 import { syncOfflineSales } from "../core/offline/syncService";
@@ -22,9 +22,7 @@ export default function POSScreen() {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
 
-  // 🔒 IMPORTANT: keep as STRING (prevents mutation bugs)
   const [cashReceived, setCashReceived] = useState("");
-
   const [receipt, setReceipt] = useState(null);
 
   const [processing, setProcessing] = useState(false);
@@ -39,13 +37,14 @@ export default function POSScreen() {
   // =========================
   useEffect(() => {
     const loadProducts = async () => {
-      try {
-        const res = await getProducts();
-        const data = await res.json();
-        setProducts(data || []);
-      } catch {
-        setError("Cannot load products");
+      const res = await getProducts();
+
+      if (!res.ok) {
+        setError(res.error || "Cannot load products");
+        return;
       }
+
+      setProducts(res.data || []);
     };
 
     loadProducts();
@@ -168,42 +167,43 @@ export default function POSScreen() {
 
     setProcessing(true);
 
-    try {
-      const payload = {
-        items: cart.map((item) => ({
-          product_id: item.id,
-          quantity: item.quantity,
-          price: item.retail_price,
-        })),
-        total: total,
-        payment: {
+    const payload = {
+      items: cart.map((item) => ({
+        product_id: item.id,
+        quantity: item.quantity,
+        price: item.retail_price,
+      })),
+      total: total,
+      payments: [
+        {
           amount: numericCash,
           method: "cash",
         },
-      };
+      ],
+    };
 
-      console.log("🧾 COMPLETE SALE PAYLOAD:", payload);
+    console.log("🧾 COMPLETE SALE PAYLOAD:", payload);
 
-      const result = await completeSale(payload);
+    const res = await completeSale(payload);
 
-      console.log("✅ COMPLETE SALE RESULT:", result);
-
-      // ✅ Show receipt
-      setReceipt(result);
-
-      // ✅ Reset ONLY after success
-      setCart([]);
-      setCashReceived("");
-      setIsPaying(false);
-
-    } catch (err) {
-      console.error(err);
-      alert("Sale failed");
-
-      // ❌ DO NOT modify cashReceived here
-    } finally {
+    if (!res.ok) {
+      console.error(res.error);
+      alert(res.error || "Sale failed");
       setProcessing(false);
+      return;
     }
+
+    console.log("✅ COMPLETE SALE RESULT:", res.data);
+
+    // ✅ Show receipt
+    setReceipt(res.data);
+
+    // RESET
+    setCart([]);
+    setCashReceived("");
+    setIsPaying(false);
+
+    setProcessing(false);
   };
 
   if (error) {
@@ -262,7 +262,7 @@ export default function POSScreen() {
         <PaymentPanel
           total={total}
           cashReceived={cashReceived}
-          setCashReceived={setCashReceived} // ✅ no Number()
+          setCashReceived={setCashReceived}
           change={change}
           completeSale={handleCashPayment}
           disabled={cart.length === 0 || processing}
