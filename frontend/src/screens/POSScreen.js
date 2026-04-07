@@ -16,7 +16,7 @@ import { getProducts } from "../core/services/productService";
 import { completeSale } from "../services/salesService";
 
 // OFFLINE
-import { syncOfflineSales } from "../core/offline/syncService";
+import { syncQueue } from "../services/syncService";
 
 export default function POSScreen() {
   const [products, setProducts] = useState([]);
