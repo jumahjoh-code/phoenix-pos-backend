@@ -1,8 +1,5 @@
-// src/screens/ProductsPage.js
-
 import React, { useEffect, useState } from "react";
 
-// ✅ SERVICES (FIXED)
 import {
   getProducts,
   createProduct,
@@ -40,10 +37,16 @@ export default function ProductsPage() {
       setLoading(true);
 
       const res = await getProducts();
-      const data = await res.json();
 
-      setProducts(data || []);
-      setFiltered(data || []);
+      if (!res.ok) {
+        setError(res.error || "Failed to load products");
+        return;
+      }
+
+      const data = res.data || [];
+
+      setProducts(data);
+      setFiltered(data);
 
     } catch {
       setError("Failed to load products");
@@ -89,8 +92,8 @@ export default function ProductsPage() {
         stock_quantity: parseNumber(form.stock_quantity)
       });
 
-      if (!res || !res.ok) {
-        setError("Failed to add product");
+      if (!res.ok) {
+        setError(res.error || "Failed to add product");
         return;
       }
 
@@ -126,8 +129,8 @@ export default function ProductsPage() {
     try {
       const res = await deleteProduct(id);
 
-      if (!res || !res.ok) {
-        setError("Delete failed");
+      if (!res.ok) {
+        setError(res.error || "Delete failed");
         return;
       }
 
@@ -246,44 +249,3 @@ export default function ProductsPage() {
     </div>
   );
 }
-
-const styles = {
-  container: {
-    padding: 20
-  },
-  card: {
-    background: "#fff",
-    padding: 15,
-    borderRadius: 10,
-    border: "1px solid #eee",
-    marginBottom: 15
-  },
-  input: {
-    padding: 10,
-    borderRadius: 6,
-    border: "1px solid #ccc",
-    marginBottom: 10,
-    width: "100%"
-  },
-  button: {
-    padding: 10,
-    borderRadius: 6,
-    border: "none",
-    background: "#FACC15",
-    cursor: "pointer",
-    fontWeight: "bold"
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse"
-  },
-  th: {
-    textAlign: "left",
-    padding: 10,
-    borderBottom: "1px solid #eee"
-  },
-  td: {
-    padding: 10,
-    borderBottom: "1px solid #eee"
-  }
-};
