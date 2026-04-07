@@ -1,14 +1,18 @@
 print("🔥 SALES SERVICE LOADED 🔥")
+
 from sqlalchemy import select
 from fastapi import HTTPException
+from decimal import Decimal
+
 from app.models.sale import Sale
 from app.models.sale_item import SaleItem
 from app.models.product import Product
 
 
-def create_sale(db, items, total, user_id=None):
+def create_sale(db, items, user_id=None, customer_id=None):
 
-    cost_total = 0
+    total_amount = Decimal("0")
+    cost_total = Decimal("0")
     prepared_items = []
 
     # =========================
@@ -24,7 +28,7 @@ def create_sale(db, items, total, user_id=None):
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        quantity = float(item["quantity"])
+        quantity = Decimal(str(item["quantity"]))
 
         if quantity <= 0:
             raise HTTPException(status_code=400, detail="Invalid quantity")
@@ -35,52 +39,53 @@ def create_sale(db, items, total, user_id=None):
                 detail=f"{product.name} out of stock"
             )
 
+        price = Decimal(str(item.get("price", product.retail_price or 0)))
+
+        line_total = quantity * price
+
+        total_amount += line_total
+        cost_total += Decimal(str(product.cost_price or 0)) * quantity
+
         prepared_items.append({
             "product": product,
             "quantity": quantity,
-            "price": float(item.get("price", product.retail_price))
+            "price": price
         })
 
-        cost_total += product.cost_price * quantity
-
     # =========================
-    # 🧾 CREATE SALE (NO PAYMENT HERE)
+    # 🧾 CREATE SALE
     # =========================
     sale = Sale(
-        total_amount=total,
+        customer_id=customer_id,
+        user_id=user_id,
+        total_amount=total_amount,
         cost_total=cost_total,
-        amount_paid=0,   # ✅ always start at 0
-        balance=total,   # ✅ full balance initially
-        user_id=user_id
+        amount_paid=Decimal("0"),
+        balance=total_amount,
+        status="pending"
     )
 
     db.add(sale)
     db.flush()
 
     # =========================
-    # 📦 CREATE ITEMS
+    # 📦 CREATE ITEMS + REDUCE STOCK
     # =========================
     for item in prepared_items:
         product = item["product"]
-
-        if not hasattr(product, "id"):
-            raise HTTPException(
-                status_code=500,
-                detail="Product object corrupted (not ORM instance)"
-            )
-
         quantity = item["quantity"]
 
         product.stock_quantity -= quantity
 
         sale_item = SaleItem(
+            sale_id=sale.id,
             product_id=product.id,
             quantity=quantity,
             price=item["price"],
             cost_price=product.cost_price
         )
 
-        sale.items.append(sale_item)
+        db.add(sale_item)
 
     db.flush()
 

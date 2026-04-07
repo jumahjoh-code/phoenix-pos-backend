@@ -4,13 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from datetime import date, datetime, timedelta
-import uuid
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.services.sales_service import create_sale
 from app.services.payment_service import (
-    mark_cash_payment,
     create_payment,
     sync_sale_financials
 )
@@ -49,19 +47,33 @@ def build_receipt(sale, current_user=None):
         "user": current_user.username if current_user else (
             sale.user.username if sale.user else None
         ),
+        "customer": sale.customer.name if sale.customer else None,
+
         "items": [
             {
                 "product_id": item.product_id,
                 "product_name": item.product.name if item.product else "Item",
-                "quantity": item.quantity,
+                "quantity": float(item.quantity),
                 "price": float(item.price),
                 "total": float(item.quantity * item.price)
             }
             for item in sale.items
         ],
+
+        "payments": [
+            {
+                "amount": float(p.amount),
+                "method": p.method,
+                "reference": p.reference,
+                "date": p.created_at
+            }
+            for p in sale.payments
+        ],
+
         "total_amount": float(sale.total_amount),
         "cost_total": float(sale.cost_total),
         "profit": float(sale.profit),
+
         "amount_paid": float(sale.amount_paid),
         "balance": float(sale.balance),
         "status": sale.status
@@ -69,15 +81,28 @@ def build_receipt(sale, current_user=None):
 
 
 # =========================
-# 🧾 RECEIPT NUMBER GENERATOR (IMPORTANT)
+# 🧾 RECEIPT NUMBER (SEQUENTIAL)
 # =========================
-def generate_receipt_number():
-    now = datetime.now()
-    return f"RCPT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+def generate_receipt_number(db: Session):
+    today = datetime.now().strftime("%Y%m%d")
+
+    last_sale = db.query(Sale).filter(
+        Sale.receipt_number.like(f"RCPT-{today}%")
+    ).order_by(Sale.id.desc()).first()
+
+    seq = 1
+
+    if last_sale and last_sale.receipt_number:
+        try:
+            seq = int(last_sale.receipt_number.split("-")[-1]) + 1
+        except:
+            pass
+
+    return f"RCPT-{today}-{str(seq).zfill(6)}"
 
 
 # =========================
-# 💰 COMPLETE SALE (HARDENED)
+# 💰 COMPLETE SALE
 # =========================
 @router.post("/complete")
 def complete_sale(
@@ -86,15 +111,12 @@ def complete_sale(
     current_user: User = Depends(get_current_user)
 ):
     items = data.get("items")
-    total = data.get("total")
     payments = data.get("payments", [])
+    customer_id = data.get("customer_id")
 
     # 🔒 VALIDATION
     if not items or not isinstance(items, list):
         raise HTTPException(status_code=400, detail="Items must be provided")
-
-    if total is None or float(total) <= 0:
-        raise HTTPException(status_code=400, detail="Invalid total")
 
     try:
         # =========================
@@ -103,8 +125,8 @@ def complete_sale(
         sale = create_sale(
             db=db,
             items=items,
-            total=total,
-            user_id=current_user.id
+            user_id=current_user.id,
+            customer_id=customer_id
         )
 
         sale_id = sale.id
@@ -112,33 +134,21 @@ def complete_sale(
         # =========================
         # 💳 PAYMENTS
         # =========================
-        total_paid = 0
-
         for p in payments:
-            method = p.get("method")
             amount = float(p.get("amount", 0))
+            method = p.get("method", "cash")
+            reference = p.get("reference")
 
             if amount <= 0:
                 continue
 
-            total_paid += amount
-
-            if method == "cash":
-                mark_cash_payment(db=db, sale_id=sale_id, amount=amount)
-
-            elif method == "mpesa":
-                create_payment(
-                    db=db,
-                    sale_id=sale_id,
-                    amount=amount,
-                    method="mpesa"
-                )
-
-        # =========================
-        # 🔒 PAYMENT VALIDATION (CRITICAL)
-        # =========================
-        if total_paid < float(total):
-            raise HTTPException(status_code=400, detail="Insufficient payment")
+            create_payment(
+                db=db,
+                sale_id=sale_id,
+                amount=amount,
+                method=method,
+                reference=reference
+            )
 
         # =========================
         # 🔄 SYNC FINANCIALS
@@ -148,16 +158,18 @@ def complete_sale(
         # =========================
         # 🧾 RECEIPT NUMBER
         # =========================
-        sale.receipt_number = generate_receipt_number()
+        sale.receipt_number = generate_receipt_number(db)
 
         db.commit()
 
         # =========================
-        # 🔁 RELOAD (SAFE)
+        # 🔁 SAFE RELOAD
         # =========================
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
-            joinedload(Sale.user)
+            joinedload(Sale.user),
+            joinedload(Sale.customer),
+            joinedload(Sale.payments)
         ).filter(Sale.id == sale_id).first()
 
         return build_receipt(sale, current_user)
@@ -184,6 +196,7 @@ def list_sales(db: Session = Depends(get_db)):
             "sale_id": sale.id,
             "date": sale.created_at,
             "user": sale.user.username if sale.user else None,
+            "customer": sale.customer.name if sale.customer else None,
             "total_amount": float(sale.total_amount),
             "amount_paid": float(sale.amount_paid),
             "balance": float(sale.balance),
@@ -200,7 +213,9 @@ def list_sales(db: Session = Depends(get_db)):
 def get_sale(sale_id: int, db: Session = Depends(get_db)):
     sale = db.query(Sale).options(
         joinedload(Sale.items).joinedload(SaleItem.product),
-        joinedload(Sale.user)
+        joinedload(Sale.user),
+        joinedload(Sale.customer),
+        joinedload(Sale.payments)
     ).filter(Sale.id == sale_id).first()
 
     if not sale:
@@ -226,14 +241,14 @@ def today_summary(db: Session = Depends(get_db)):
         func.coalesce(func.sum(Sale.amount_paid), 0)
     ).filter(Sale.created_at.between(start, end)).first()
 
-    transactions, total_sales, total_cost, cash_collected = result
+    transactions, total_sales, total_cost, total_paid = result
 
     return {
         "transactions": int(transactions),
         "total_sales": float(total_sales),
         "total_cost": float(total_cost),
         "profit": float(total_sales - total_cost),
-        "cash_collected": float(cash_collected)
+        "cash_collected": float(total_paid)
     }
 
 
