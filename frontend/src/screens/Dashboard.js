@@ -21,6 +21,13 @@ import {
   getRecentSales
 } from "../core/services/dashboardService";
 
+// 🔥 BACKUP SERVICE
+import {
+  createBackup,
+  getBackups,
+  restoreBackup
+} from "../core/services/backupService";
+
 export default function Dashboard() {
   const [darkMode, setDarkMode] = useState(false);
   const [search, setSearch] = useState("");
@@ -31,8 +38,12 @@ export default function Dashboard() {
   const [inventoryValue, setInventoryValue] = useState(0);
   const [ai, setAI] = useState(null);
 
+  const [backups, setBackups] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const mountedRef = useRef(true);
@@ -55,7 +66,7 @@ export default function Dashboard() {
       };
 
   // =========================
-  // 📊 SAFE DATA LOADER
+  // 📊 LOAD DATA
   // =========================
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -73,37 +84,67 @@ export default function Dashboard() {
         throw new Error("Dashboard API failed");
       }
 
-      const summaryData = summaryRes.data || {};
-      const cashierData = Array.isArray(cashierRes.data?.data)
-        ? cashierRes.data.data
-        : [];
-      const aiData = aiRes.data || null;
-      const sales = Array.isArray(salesRes.data) ? salesRes.data : [];
-
       if (!mountedRef.current) return;
 
-      setSummary(summaryData);
-      setCashiers(cashierData);
-      setAI(aiData);
-      setSalesData(sales);
-      setInventoryValue(aiData?.inventory_value || 0);
+      setSummary(summaryRes.data || {});
+      setCashiers(cashierRes.data?.data || []);
+      setAI(aiRes.data || null);
+      setSalesData(salesRes.data || []);
+      setInventoryValue(aiRes.data?.inventory_value || 0);
       setLastUpdated(new Date());
 
     } catch (err) {
       console.error("❌ Dashboard Error:", err);
-      if (mountedRef.current) {
-        setError("Failed to load dashboard");
-      }
+      if (mountedRef.current) setError("Failed to load dashboard");
     } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
+      if (mountedRef.current) setLoading(false);
     }
   }, []);
+
+  // =========================
+  // 💾 LOAD BACKUPS
+  // =========================
+  const loadBackups = async () => {
+    const res = await getBackups();
+    if (res.ok) {
+      setBackups(res.data.backups || []);
+    }
+  };
+
+  // =========================
+  // 📦 CREATE BACKUP
+  // =========================
+  const handleBackup = async () => {
+    setMessage("");
+    const res = await createBackup();
+
+    if (res.ok) {
+      setMessage("✅ Backup created");
+      loadBackups();
+    } else {
+      setMessage(res.error || "Backup failed");
+    }
+  };
+
+  // =========================
+  // 🔁 RESTORE
+  // =========================
+  const handleRestore = async (file) => {
+    if (!window.confirm("⚠️ This will overwrite current data. Continue?")) return;
+
+    const res = await restoreBackup(`backups/${file}`);
+
+    if (res.ok) {
+      setMessage("✅ Restore successful. Please refresh.");
+    } else {
+      setMessage(res.error || "Restore failed");
+    }
+  };
 
   useEffect(() => {
     mountedRef.current = true;
     fetchData();
+    loadBackups();
 
     return () => {
       mountedRef.current = false;
@@ -113,35 +154,18 @@ export default function Dashboard() {
   // AUTO REFRESH
   useEffect(() => {
     const interval = setInterval(() => {
-      if (navigator.onLine) {
-        fetchData();
-      }
+      if (navigator.onLine) fetchData();
     }, 60000);
 
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // =========================
-  // 🔍 FILTER
-  // =========================
   const filteredCashiers = cashiers.filter((c) =>
     c?.cashier?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // =========================
-  // UI STATES
-  // =========================
-  if (loading) {
-    return <div style={{ padding: spacing.lg }}>Loading dashboard...</div>;
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: spacing.lg, color: colors.danger }}>
-        {error}
-      </div>
-    );
-  }
+  if (loading) return <div style={{ padding: spacing.lg }}>Loading...</div>;
+  if (error) return <div style={{ padding: spacing.lg, color: colors.danger }}>{error}</div>;
 
   return (
     <div style={{
@@ -151,7 +175,7 @@ export default function Dashboard() {
       padding: spacing.lg
     }}>
 
-      {/* TOP BAR */}
+      {/* HEADER */}
       <div style={topBar}>
         <h2 style={{ color: colors.primary }}>Dashboard</h2>
 
@@ -166,10 +190,7 @@ export default function Dashboard() {
             />
           </div>
 
-          <div
-            onClick={() => setDarkMode(!darkMode)}
-            style={{ cursor: "pointer" }}
-          >
+          <div onClick={() => setDarkMode(!darkMode)} style={{ cursor: "pointer" }}>
             {darkMode ? <Sun /> : <Moon />}
           </div>
 
@@ -187,63 +208,38 @@ export default function Dashboard() {
         <KPICard title="Inventory" value={formatKES(inventoryValue)} icon={<Package />} />
       </div>
 
-      {/* AI ALERT */}
-      {ai?.alerts?.length > 0 && (
-        <Card>
-          <h3>AI Alerts</h3>
-          {ai.alerts.map((a, i) => (
-            <div key={i} style={{ marginTop: spacing.sm }}>
-              ⚠️ {a}
-            </div>
-          ))}
-        </Card>
-      )}
+      {/* BACKUP PANEL */}
+      <Card>
+        <h3>Backup & Restore</h3>
+
+        <button onClick={handleBackup} style={backupBtn}>
+          Create Backup
+        </button>
+
+        {message && <p style={{ marginTop: 10 }}>{message}</p>}
+
+        {backups.map((b, i) => (
+          <div key={i} style={backupItem}>
+            <span>{b}</span>
+            <button onClick={() => handleRestore(b)} style={restoreBtn}>
+              Restore
+            </button>
+          </div>
+        ))}
+      </Card>
 
       {/* CHART */}
       <Card>
         <h3>Recent Sales</h3>
-
-        {salesData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={salesData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="total_sales" stroke={colors.primary} />
-            </LineChart>
-          </ResponsiveContainer>
-        ) : (
-          <p style={{ color: theme.subtext }}>No data available</p>
-        )}
-      </Card>
-
-      {/* CASHIERS */}
-      <Card>
-        <h3>Cashiers</h3>
-
-        {filteredCashiers.length === 0 ? (
-          <p style={{ color: theme.subtext }}>No cashier data</p>
-        ) : (
-          <table style={{ width: "100%" }}>
-            <thead>
-              <tr style={{ color: theme.subtext }}>
-                <th>Name</th>
-                <th>Transactions</th>
-                <th>Sales</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCashiers.map((c, i) => (
-                <tr key={i}>
-                  <td>{c.cashier}</td>
-                  <td>{c.transactions}</td>
-                  <td>{formatKES(c.total_sales)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={salesData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="total_sales" stroke={colors.primary} />
+          </LineChart>
+        </ResponsiveContainer>
       </Card>
 
     </div>
@@ -255,7 +251,6 @@ export default function Dashboard() {
 const topBar = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
   marginBottom: spacing.lg
 };
 
@@ -286,4 +281,28 @@ const grid = {
   gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))",
   gap: spacing.lg,
   marginBottom: spacing.lg
+};
+
+const backupBtn = {
+  padding: 10,
+  background: "#2563eb",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer"
+};
+
+const restoreBtn = {
+  padding: "4px 10px",
+  background: "#dc2626",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer"
+};
+
+const backupItem = {
+  display: "flex",
+  justifyContent: "space-between",
+  marginTop: 10
 };

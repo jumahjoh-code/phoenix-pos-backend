@@ -1,4 +1,5 @@
 print("🔥 MAIN FILE LOADED 🔥")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -7,6 +8,10 @@ import os
 
 from app.core.database import Base, engine
 from app.core.init_admin import create_default_admin
+
+# 🔥 BACKUP SYSTEM
+from app.routers.backup_router import router as backup_router
+from app.core.backup_scheduler import start_backup_scheduler
 
 # =========================
 # IMPORT MODELS
@@ -65,6 +70,9 @@ def startup():
     Base.metadata.create_all(bind=engine)
     create_default_admin()
 
+    # 🔥 START AUTO BACKUP SCHEDULER
+    start_backup_scheduler()
+
 # =========================
 # ROUTERS (GLOBAL /api PREFIX)
 # =========================
@@ -80,6 +88,9 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(payment_router, prefix="/api")
 app.include_router(mpesa_router, prefix="/api")
 app.include_router(ledger_router, prefix="/api")
+
+# 🔥 BACKUP ROUTER
+app.include_router(backup_router, prefix="/api")
 
 # =========================
 # FRONTEND PATH
@@ -138,7 +149,8 @@ if os.path.exists(frontend_path):
             "dashboard",
             "payments",
             "mpesa",
-            "ledger"
+            "ledger",
+            "backup"  # 🔥 protect backup routes too
         )):
             raise HTTPException(status_code=404, detail="Not Found")
 
