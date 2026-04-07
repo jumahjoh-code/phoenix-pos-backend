@@ -10,7 +10,7 @@ import spacing from "../design/spacing";
 import Card from "../ui/components/Card";
 import KPICard from "../ui/components/KPICard";
 
-// ✅ SERVICES
+// SERVICES
 import {
   getTodaySummary,
   getCashierPerformance
@@ -25,7 +25,6 @@ export default function Dashboard() {
 
   const [darkMode, setDarkMode] = useState(false);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ range: "today" });
 
   const [summary, setSummary] = useState({});
   const [salesData, setSalesData] = useState([]);
@@ -55,7 +54,7 @@ export default function Dashboard() {
       };
 
   // =========================
-  // 📊 DATA LOADER
+  // DATA LOADER (FIXED)
   // =========================
   const fetchData = useCallback(async () => {
     try {
@@ -69,21 +68,33 @@ export default function Dashboard() {
         getRecentSales()
       ]);
 
-      const summary = await summaryRes?.json();
-      const cashiers = await cashierRes?.json();
-      const aiData = await aiRes?.json();
-      const sales = await salesRes?.json();
+      // ✅ AXIOS FIX
+      const summary = summaryRes?.data;
+      const cashierData = cashierRes?.data;
+      const aiData = aiRes?.data;
+      const sales = salesRes?.data;
 
       setSummary(summary || {});
-      setCashiers(Array.isArray(cashiers) ? cashiers : []);
+      setCashiers(Array.isArray(cashierData?.data) ? cashierData.data : []);
       setAI(aiData || null);
       setSalesData(Array.isArray(sales) ? sales : []);
 
       setInventoryValue(aiData?.inventory_value || 0);
       setLastUpdated(new Date());
 
+      console.log("📊 Dashboard Loaded:", {
+        summary,
+        cashierData,
+        sales
+      });
+
     } catch (err) {
-      console.error("Dashboard error:", err);
+      console.error("❌ Dashboard error:", err);
+
+      if (err.response) {
+        console.error("API Error:", err.response.data);
+      }
+
       setError("Failed to load dashboard");
     } finally {
       setLoading(false);
