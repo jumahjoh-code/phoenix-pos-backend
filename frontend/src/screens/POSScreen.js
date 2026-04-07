@@ -13,7 +13,7 @@ import ReceiptModal from "../components/ReceiptModal";
 
 // SERVICES
 import { getProducts } from "../core/services/productService";
-import { completeSale } from "../core/services/salesService";
+import { completeSale } from "../services/salesService";
 
 // OFFLINE
 import { syncOfflineSales } from "../core/offline/syncService";

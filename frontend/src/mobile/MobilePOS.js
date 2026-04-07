@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { getProducts } from "../core/services/productService";
-import { completeSale } from "../core/services/salesService";
+import { completeSale } from "../services/salesService";
 
 export default function MobilePOS() {
   const [products, setProducts] = useState([]);
