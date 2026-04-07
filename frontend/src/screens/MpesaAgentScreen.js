@@ -17,39 +17,25 @@ export default function MpesaAgentScreen() {
   const formatKES = (val) =>
     "KES " + Number(val || 0).toLocaleString();
 
-  // =========================
-  // 📱 PHONE FORMAT
-  // =========================
   const formatPhone = (value) => {
     let p = value.replace(/\D/g, "");
-
     if (p.startsWith("0")) p = "254" + p.slice(1);
     if (p.startsWith("7") && p.length === 9) p = "254" + p;
-
     return p;
   };
 
   const isValidPhone = (p) => /^254\d{9}$/.test(p);
 
-  // =========================
-  // 📥 FETCH BALANCES
-  // =========================
   const fetchBalances = useCallback(async () => {
     try {
       const res = await fetch(`${API}/ledger/summary`);
       const data = await res.json();
-
-      if (mountedRef.current) {
-        setLedger(data || {});
-      }
+      if (mountedRef.current) setLedger(data || {});
     } catch (err) {
       console.error("Balance error:", err);
     }
   }, []);
 
-  // =========================
-  // 📥 FETCH TRANSACTIONS
-  // =========================
   const fetchTransactions = useCallback(async () => {
     try {
       const res = await fetch(`${API}/ledger`);
@@ -73,18 +59,13 @@ export default function MpesaAgentScreen() {
 
   useEffect(() => {
     mountedRef.current = true;
-
     fetchBalances();
     fetchTransactions();
-
     return () => {
       mountedRef.current = false;
     };
   }, [fetchBalances, fetchTransactions]);
 
-  // =========================
-  // 💳 HANDLE TRANSACTION
-  // =========================
   const handleTransaction = async (type) => {
     if (loading) return;
 
@@ -136,7 +117,6 @@ export default function MpesaAgentScreen() {
 
     } catch (err) {
       console.error(err);
-
       if (mountedRef.current) {
         setError(err.message || "❌ Server error");
       }
@@ -148,32 +128,30 @@ export default function MpesaAgentScreen() {
   };
 
   return (
-    <div style={container}>
+    <div style={styles.container}>
       <h2>📱 M-Pesa Agent</h2>
 
-      {/* BALANCE */}
-      <div style={balanceBox}>
+      <div style={styles.balanceBox}>
         <div>
           💵 Cash
-          <div style={balanceValue}>
+          <div style={styles.balanceValue}>
             {formatKES(ledger?.cash_balance)}
           </div>
         </div>
 
         <div>
           📲 Float
-          <div style={balanceValue}>
+          <div style={styles.balanceValue}>
             {formatKES(ledger?.mpesa_agent_balance)}
           </div>
         </div>
       </div>
 
-      {error && <div style={errorBox}>{error}</div>}
-      {success && <div style={successBox}>{success}</div>}
+      {error && <div style={styles.errorBox}>{error}</div>}
+      {success && <div style={styles.successBox}>{success}</div>}
 
-      {/* INPUTS */}
       <input
-        style={input}
+        style={styles.input}
         placeholder="07XXXXXXXX"
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
@@ -181,7 +159,7 @@ export default function MpesaAgentScreen() {
       />
 
       <input
-        style={input}
+        style={styles.input}
         placeholder="Amount"
         type="number"
         value={amount}
@@ -189,10 +167,9 @@ export default function MpesaAgentScreen() {
         disabled={loading}
       />
 
-      {/* ACTIONS */}
-      <div style={btnGroup}>
+      <div style={styles.btnGroup}>
         <button
-          style={{ ...depositBtn, opacity: loading ? 0.6 : 1 }}
+          style={{ ...styles.depositBtn, opacity: loading ? 0.6 : 1 }}
           disabled={loading}
           onClick={() => handleTransaction("deposit")}
         >
@@ -200,7 +177,7 @@ export default function MpesaAgentScreen() {
         </button>
 
         <button
-          style={{ ...withdrawBtn, opacity: loading ? 0.6 : 1 }}
+          style={{ ...styles.withdrawBtn, opacity: loading ? 0.6 : 1 }}
           disabled={loading}
           onClick={() => handleTransaction("withdraw")}
         >
@@ -210,10 +187,9 @@ export default function MpesaAgentScreen() {
 
       {loading && <p style={{ marginTop: 10 }}>Processing...</p>}
 
-      {/* TRANSACTIONS */}
       <h3 style={{ marginTop: 30 }}>Recent Transactions</h3>
 
-      <table style={table}>
+      <table style={styles.table}>
         <thead>
           <tr>
             <th>Type</th>
@@ -234,9 +210,7 @@ export default function MpesaAgentScreen() {
                 <td
                   style={{
                     color:
-                      t.type === "mpesa_deposit"
-                        ? "green"
-                        : "red",
+                      t.type === "mpesa_deposit" ? "green" : "red",
                     fontWeight: "bold",
                   }}
                 >
@@ -258,3 +232,80 @@ export default function MpesaAgentScreen() {
     </div>
   );
 }
+
+// =========================
+// 🎨 STYLES (FIXED)
+// =========================
+const styles = {
+  container: { padding: 20 },
+
+  balanceBox: {
+    display: "flex",
+    justifyContent: "space-between",
+    background: "#f3f4f6",
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+
+  balanceValue: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+
+  errorBox: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 10,
+  },
+
+  successBox: {
+    background: "#dcfce7",
+    color: "#166534",
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 10,
+  },
+
+  input: {
+    width: "100%",
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 6,
+    border: "1px solid #ccc",
+  },
+
+  btnGroup: {
+    display: "flex",
+    gap: 10,
+    marginBottom: 15,
+  },
+
+  depositBtn: {
+    flex: 1,
+    padding: 12,
+    background: "#16a34a",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    cursor: "pointer",
+  },
+
+  withdrawBtn: {
+    flex: 1,
+    padding: 12,
+    background: "#dc2626",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    cursor: "pointer",
+  },
+
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    marginTop: 10,
+  },
+};
