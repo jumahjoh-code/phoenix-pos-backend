@@ -14,35 +14,57 @@ export const logout = () => {
 };
 
 // =========================
-// 🔄 REFRESH TOKEN
+// 🔄 REFRESH TOKEN (WITH LOCK)
 // =========================
+let refreshing = null;
+
 const refreshAccessToken = async () => {
-  const refresh_token = getRefreshToken();
-  if (!refresh_token) return null;
+  if (refreshing) return refreshing;
 
-  try {
-    const res = await fetch(`${API}/auth/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ refresh_token }),
-    });
+  refreshing = (async () => {
+    const refresh_token = getRefreshToken();
+    if (!refresh_token) return null;
 
-    if (!res.ok) return null;
+    try {
+      const res = await fetch(`${API}/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refresh_token }),
+      });
 
-    const data = await res.json();
-    localStorage.setItem("access_token", data.access_token);
+      if (!res.ok) return null;
 
-    return data.access_token;
-  } catch (err) {
-    console.error("Refresh failed:", err);
-    return null;
-  }
+      const data = await res.json();
+      localStorage.setItem("access_token", data.access_token);
+
+      return data.access_token;
+    } catch (err) {
+      console.error("Refresh failed:", err);
+      return null;
+    } finally {
+      refreshing = null;
+    }
+  })();
+
+  return refreshing;
 };
 
 // =========================
-// 📦 QUEUE HELPER
+// ⏱️ FETCH WITH TIMEOUT
+// =========================
+const fetchWithTimeout = (url, options, timeout = 10000) => {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout")), timeout)
+    ),
+  ]);
+};
+
+// =========================
+// 📦 QUEUE HELPER (NO TOKEN)
 // =========================
 const queueRequest = (endpoint, options) => {
   addToQueue({
@@ -52,7 +74,6 @@ const queueRequest = (endpoint, options) => {
       headers: {
         ...(options.headers || {}),
         "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
       },
     },
   });
@@ -66,13 +87,27 @@ const queueRequest = (endpoint, options) => {
 export const authFetch = async (endpoint, options = {}) => {
   let token = getToken();
 
+  // ✅ INSTANT OFFLINE DETECTION
+  if (!navigator.onLine) {
+    queueRequest(endpoint, options);
+
+    return {
+      ok: true,
+      offline: true,
+      data: {
+        message: "No internet. Saved offline.",
+      },
+    };
+  }
+
   try {
-    let res = await fetch(`${API}${endpoint}`, {
+    let res = await fetchWithTimeout(`${API}${endpoint}`, {
       ...options,
       headers: {
         ...(options.headers || {}),
         "Content-Type": "application/json",
         ...(token && { Authorization: `Bearer ${token}` }),
+        "X-Request-ID": Date.now().toString(),
       },
     });
 
@@ -89,12 +124,13 @@ export const authFetch = async (endpoint, options = {}) => {
         };
       }
 
-      res = await fetch(`${API}${endpoint}`, {
+      res = await fetchWithTimeout(`${API}${endpoint}`, {
         ...options,
         headers: {
           ...(options.headers || {}),
           "Content-Type": "application/json",
           Authorization: `Bearer ${newToken}`,
+          "X-Request-ID": Date.now().toString(),
         },
       });
     }

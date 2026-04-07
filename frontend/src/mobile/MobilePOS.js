@@ -1,36 +1,55 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
-import { API } from "config"; // ✅ FIXED
+import { getProducts } from "../core/services/productService";
+import { completeSale } from "../core/services/salesService";
 
 export default function MobilePOS() {
-
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState(null);
 
   const scannerRef = useRef(null);
+  const mountedRef = useRef(true);
 
   // =========================
-  // LOAD PRODUCTS
+  // 📦 LOAD PRODUCTS (SAFE)
   // =========================
   useEffect(() => {
-    fetch(`${API}/products/`)
-      .then(res => res.json())
-      .then(setProducts)
-      .catch(() => alert("Failed to load products"));
+    mountedRef.current = true;
+
+    const load = async () => {
+      const res = await getProducts();
+
+      if (!res.ok) {
+        setError(res.error || "Failed to load products");
+        return;
+      }
+
+      if (mountedRef.current) {
+        setProducts(res.data || []);
+      }
+    };
+
+    load();
+
+    return () => {
+      mountedRef.current = false;
+      stopScanner();
+    };
   }, []);
 
   // =========================
-  // ADD TO CART
+  // ➕ ADD TO CART
   // =========================
-  const addToCart = (product) => {
-    setCart(prev => {
-      const exists = prev.find(p => p.id === product.id);
+  const addToCart = useCallback((product) => {
+    setCart((prev) => {
+      const exists = prev.find((p) => p.id === product.id);
 
       if (exists) {
-        return prev.map(p =>
+        return prev.map((p) =>
           p.id === product.id
             ? { ...p, qty: p.qty + 1 }
             : p
@@ -42,18 +61,20 @@ export default function MobilePOS() {
         {
           id: product.id,
           name: product.name,
-          price: Number(product.retail_price),
-          qty: 1
-        }
+          price: Number(product.retail_price || 0),
+          qty: 1,
+        },
       ];
     });
-  };
+  }, []);
 
   // =========================
-  // SCAN SUCCESS
+  // 📷 SCAN SUCCESS
   // =========================
-  const handleScan = (decodedText) => {
-    const product = products.find(p => p.barcode === decodedText);
+  const handleScan = useCallback((decodedText) => {
+    const product = products.find(
+      (p) => p.barcode === decodedText
+    );
 
     if (!product) {
       alert("Product not found");
@@ -61,12 +82,14 @@ export default function MobilePOS() {
     }
 
     addToCart(product);
-  };
+  }, [products, addToCart]);
 
   // =========================
-  // START SCANNER
+  // ▶️ START SCANNER
   // =========================
   const startScanner = async () => {
+    if (scanning) return;
+
     setScanning(true);
 
     const html5QrCode = new Html5Qrcode("reader");
@@ -75,12 +98,8 @@ export default function MobilePOS() {
     try {
       await html5QrCode.start(
         { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 100 }
-        },
-        handleScan,
-        () => {}
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        handleScan
       );
     } catch (err) {
       console.error(err);
@@ -90,27 +109,33 @@ export default function MobilePOS() {
   };
 
   // =========================
-  // STOP SCANNER
+  // ⏹ STOP SCANNER (SAFE)
   // =========================
   const stopScanner = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-      await scannerRef.current.clear();
-      scannerRef.current = null;
+    try {
+      if (scannerRef.current) {
+        await scannerRef.current.stop();
+        await scannerRef.current.clear();
+        scannerRef.current = null;
+      }
+    } catch (err) {
+      console.warn("Scanner stop error:", err);
     }
     setScanning(false);
   };
 
   // =========================
-  // TOTAL
+  // 💰 TOTAL
   // =========================
-  const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const total = cart.reduce(
+    (sum, i) => sum + i.price * i.qty,
+    0
+  );
 
   // =========================
-  // COMPLETE SALE
+  // 💳 COMPLETE SALE
   // =========================
-  const completeSale = async () => {
-
+  const handleSale = async () => {
     if (loading) return;
 
     if (cart.length === 0) {
@@ -121,28 +146,25 @@ export default function MobilePOS() {
     setLoading(true);
 
     try {
-      const items = cart.map(i => ({
-        product_id: i.id,
-        quantity: i.qty
-      }));
+      const payload = {
+        items: cart.map((i) => ({
+          product_id: i.id,
+          quantity: i.qty,
+          price: i.price,
+        })),
+        total,
+        payments: [
+          {
+            amount: total,
+            method: "cash",
+          },
+        ],
+      };
 
-      const res = await fetch(`${API}/sales/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          items,
-          total,
-          amount_paid: total
-        })
-      });
-
-      const data = await res.json();
+      const res = await completeSale(payload);
 
       if (!res.ok) {
-        alert(data.detail || "Sale failed");
-        return;
+        throw new Error(res.error || "Sale failed");
       }
 
       alert("✅ Sale complete");
@@ -150,115 +172,124 @@ export default function MobilePOS() {
 
     } catch (err) {
       console.error(err);
-      alert("Server error");
+      alert(err.message || "Sale failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const filtered = products.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase())
+  // =========================
+  // 🔍 FILTER
+  // =========================
+  const filtered = products.filter((p) =>
+    p.name?.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (error) {
+    return <div style={{ padding: 20 }}>{error}</div>;
+  }
 
   return (
     <div style={{ padding: 10 }}>
-
       <h2>📱 Mobile POS</h2>
 
-      {/* 🔍 SEARCH */}
+      {/* SEARCH */}
       <input
         placeholder="Search product..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        style={{
-          width: "100%",
-          padding: 12,
-          fontSize: 16,
-          marginBottom: 10
-        }}
+        style={styles.input}
       />
 
-      {/* 📷 SCANNER BUTTON */}
+      {/* SCANNER */}
       {!scanning ? (
-        <button
-          onClick={startScanner}
-          style={{
-            width: "100%",
-            padding: 15,
-            marginBottom: 10,
-            background: "#007bff",
-            color: "#fff",
-            fontSize: 16,
-            border: "none"
-          }}
-        >
+        <button onClick={startScanner} style={styles.scanBtn}>
           📷 Scan Barcode
         </button>
       ) : (
-        <button
-          onClick={stopScanner}
-          style={{
-            width: "100%",
-            padding: 15,
-            marginBottom: 10,
-            background: "red",
-            color: "#fff",
-            fontSize: 16,
-            border: "none"
-          }}
-        >
+        <button onClick={stopScanner} style={styles.stopBtn}>
           ❌ Stop Scanner
         </button>
       )}
 
-      {/* 📷 CAMERA VIEW */}
-      {scanning && (
-        <div id="reader" style={{ width: "100%", marginBottom: 10 }} />
-      )}
+      {scanning && <div id="reader" style={{ width: "100%" }} />}
 
-      {/* 🛒 PRODUCTS */}
+      {/* PRODUCTS */}
       <div style={{ marginBottom: 100 }}>
-        {filtered.slice(0, 20).map(p => (
+        {filtered.slice(0, 20).map((p) => (
           <div
             key={p.id}
             onClick={() => addToCart(p)}
-            style={{
-              padding: 12,
-              borderBottom: "1px solid #ddd"
-            }}
+            style={styles.product}
           >
             {p.name} - KES {p.retail_price}
           </div>
         ))}
       </div>
 
-      {/* 🧾 CART */}
-      <div style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: "#fff",
-        borderTop: "2px solid #000",
-        padding: 10
-      }}>
+      {/* CART SUMMARY */}
+      <div style={styles.cart}>
         <div>Total: KES {total}</div>
 
         <button
-          onClick={completeSale}
-          style={{
-            width: "100%",
-            padding: 15,
-            background: "green",
-            color: "#fff",
-            fontSize: 18,
-            border: "none"
-          }}
+          onClick={handleSale}
+          style={styles.payBtn}
+          disabled={loading}
         >
-          Complete Sale
+          {loading ? "Processing..." : "Complete Sale"}
         </button>
       </div>
-
     </div>
   );
 }
+
+// =========================
+// 🎨 STYLES
+// =========================
+const styles = {
+  input: {
+    width: "100%",
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 10,
+  },
+  scanBtn: {
+    width: "100%",
+    padding: 15,
+    marginBottom: 10,
+    background: "#007bff",
+    color: "#fff",
+    fontSize: 16,
+    border: "none",
+  },
+  stopBtn: {
+    width: "100%",
+    padding: 15,
+    marginBottom: 10,
+    background: "red",
+    color: "#fff",
+    fontSize: 16,
+    border: "none",
+  },
+  product: {
+    padding: 12,
+    borderBottom: "1px solid #ddd",
+  },
+  cart: {
+    position: "fixed",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: "#fff",
+    borderTop: "2px solid #000",
+    padding: 10,
+  },
+  payBtn: {
+    width: "100%",
+    padding: 15,
+    background: "green",
+    color: "#fff",
+    fontSize: 18,
+    border: "none",
+  },
+};

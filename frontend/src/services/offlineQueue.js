@@ -17,29 +17,36 @@ export const getQueue = () => {
 };
 
 // =========================
-// 📊 GET QUEUE COUNT ✅ (FIX)
+// 📊 GET QUEUE COUNT
 // =========================
-export const getQueueCount = () => {
-  return getQueue().length;
-};
+export const getQueueCount = () => getQueue().length;
 
 // =========================
 // 💾 SAVE QUEUE
 // =========================
 const saveQueue = (queue) => {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  } catch (err) {
+    console.error("Failed to save queue:", err);
+  }
 };
 
 // =========================
-// ➕ ADD TO QUEUE
+// ➕ ADD TO QUEUE (ENHANCED)
 // =========================
 export const addToQueue = (item) => {
   const queue = getQueue();
 
-  queue.push({
-    ...item,
-    timestamp: Date.now(), // useful for debugging / ordering
-  });
+  const enrichedItem = {
+    id: `${Date.now()}-${Math.random()}`, // unique ID
+    url: item.url,
+    options: item.options,
+    retries: 0,
+    timestamp: Date.now(),
+  };
+
+  queue.push(enrichedItem);
 
   saveQueue(queue);
 };
@@ -49,8 +56,20 @@ export const addToQueue = (item) => {
 // =========================
 export const removeFirstItem = () => {
   const queue = getQueue();
+
+  if (!queue.length) return;
+
   queue.shift();
   saveQueue(queue);
+};
+
+// =========================
+// ❌ REMOVE BY ID (NEW)
+// =========================
+export const removeById = (id) => {
+  const queue = getQueue();
+  const updated = queue.filter((item) => item.id !== id);
+  saveQueue(updated);
 };
 
 // =========================
@@ -61,10 +80,8 @@ export const clearQueue = () => {
 };
 
 // =========================
-// 🔄 PROCESS QUEUE (OPTIONAL LEGACY)
+// 🔄 PROCESS QUEUE (IMPROVED)
 // =========================
-// NOTE: Your system mainly uses syncService,
-// but keeping this for flexibility/testing
 export const processQueue = async () => {
   const queue = getQueue();
 
@@ -74,10 +91,28 @@ export const processQueue = async () => {
 
   for (const item of queue) {
     try {
-      await fetch(item.url, item.options);
+      const res = await fetch(item.url, item.options);
+
+      if (!res.ok) {
+        throw new Error("Request failed");
+      }
+
+      console.log("✅ Synced:", item.url);
+
     } catch (err) {
-      console.error("Queue retry failed:", err);
-      remaining.push(item); // keep failed ones
+      console.warn("⚠️ Queue retry failed:", item.url);
+
+      // Retry logic
+      const retries = (item.retries || 0) + 1;
+
+      if (retries < 5) {
+        remaining.push({
+          ...item,
+          retries,
+        });
+      } else {
+        console.error("❌ Dropped after max retries:", item.url);
+      }
     }
   }
 

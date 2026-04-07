@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { authFetch } from "../core/api/apiClient";
 
 export default function Users({ setCurrentScreen }) {
-
   const [users, setUsers] = useState([]);
+
   const [form, setForm] = useState({
     username: "",
     password: "",
-    role: "cashier"
+    role: "cashier",
   });
 
   const [editingId, setEditingId] = useState(null);
@@ -17,6 +17,8 @@ export default function Users({ setCurrentScreen }) {
 
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  const mountedRef = useRef(true);
 
   const currentUser = JSON.parse(localStorage.getItem("user"));
 
@@ -30,27 +32,42 @@ export default function Users({ setCurrentScreen }) {
   }, [currentUser, setCurrentScreen]);
 
   // =========================
-  // 📥 FETCH USERS
+  // 📥 FETCH USERS (SAFE)
   // =========================
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const res = await authFetch("/users/");
+    try {
+      const res = await authFetch("/users/");
 
-    if (!res.ok) {
-      setError(res.error || "Failed to load users");
-      setLoading(false);
-      return;
+      if (!res.ok) {
+        throw new Error(res.error || "Failed to load users");
+      }
+
+      if (mountedRef.current) {
+        setUsers(res.data || []);
+      }
+    } catch (err) {
+      console.error("Fetch users error:", err);
+      if (mountedRef.current) {
+        setError(err.message);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
-
-    setUsers(res.data || []);
-    setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchUsers();
-  }, []);
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchUsers]);
 
   // =========================
   // 🧹 RESET FORM
@@ -59,7 +76,7 @@ export default function Users({ setCurrentScreen }) {
     setForm({
       username: "",
       password: "",
-      role: "cashier"
+      role: "cashier",
     });
     setEditingId(null);
   };
@@ -68,7 +85,6 @@ export default function Users({ setCurrentScreen }) {
   // 💾 CREATE / UPDATE
   // =========================
   const handleSubmit = async () => {
-
     if (actionLoading) return;
 
     setError(null);
@@ -86,26 +102,29 @@ export default function Users({ setCurrentScreen }) {
 
     setActionLoading(true);
 
-    const res = await authFetch(
-      editingId ? `/users/${editingId}` : "/users/",
-      {
-        method: editingId ? "PUT" : "POST",
-        body: JSON.stringify(form)
+    try {
+      const res = await authFetch(
+        editingId ? `/users/${editingId}` : "/users/",
+        {
+          method: editingId ? "PUT" : "POST",
+          body: JSON.stringify(form),
+        }
+      );
+
+      if (!res.ok) {
+        throw new Error(res.error || "Operation failed");
       }
-    );
 
-    if (!res.ok) {
-      setError(res.error || "Operation failed");
+      setSuccess(editingId ? "User updated" : "User created");
+
+      resetForm();
+      await fetchUsers();
+    } catch (err) {
+      console.error("Submit error:", err);
+      setError(err.message);
+    } finally {
       setActionLoading(false);
-      return;
     }
-
-    setSuccess(editingId ? "User updated" : "User created");
-
-    resetForm();
-    await fetchUsers();
-
-    setActionLoading(false);
   };
 
   // =========================
@@ -115,7 +134,7 @@ export default function Users({ setCurrentScreen }) {
     setForm({
       username: user.username,
       password: "",
-      role: user.role
+      role: user.role,
     });
     setEditingId(user.id);
   };
@@ -124,7 +143,6 @@ export default function Users({ setCurrentScreen }) {
   // 🗑️ DELETE
   // =========================
   const handleDelete = async (id) => {
-
     if (actionLoading) return;
 
     if (id === currentUser?.id) {
@@ -135,31 +153,35 @@ export default function Users({ setCurrentScreen }) {
     if (!window.confirm("Delete this user?")) return;
 
     setActionLoading(true);
+    setError(null);
+    setSuccess(null);
 
-    const res = await authFetch(`/users/${id}`, {
-      method: "DELETE"
-    });
+    try {
+      const res = await authFetch(`/users/${id}`, {
+        method: "DELETE",
+      });
 
-    if (!res.ok) {
-      setError(res.error || "Delete failed");
+      if (!res.ok) {
+        throw new Error(res.error || "Delete failed");
+      }
+
+      setSuccess("User deleted");
+      await fetchUsers();
+    } catch (err) {
+      console.error("Delete error:", err);
+      setError(err.message);
+    } finally {
       setActionLoading(false);
-      return;
     }
-
-    setSuccess("User deleted");
-    await fetchUsers();
-
-    setActionLoading(false);
   };
 
   // =========================
-  // UI
+  // UI STATES
   // =========================
   if (loading) return <p style={styles.msg}>Loading users...</p>;
 
   return (
     <div style={styles.page}>
-
       <button
         onClick={() => setCurrentScreen && setCurrentScreen("dashboard")}
         style={styles.backBtn}
@@ -177,11 +199,12 @@ export default function Users({ setCurrentScreen }) {
         <h3>{editingId ? "Edit User" : "Create User"}</h3>
 
         <div style={styles.form}>
-
           <input
             placeholder="Username"
             value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, username: e.target.value }))
+            }
             style={styles.input}
             disabled={actionLoading}
           />
@@ -190,14 +213,18 @@ export default function Users({ setCurrentScreen }) {
             placeholder="Password"
             type="password"
             value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, password: e.target.value }))
+            }
             style={styles.input}
             disabled={actionLoading}
           />
 
           <select
             value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value })}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, role: e.target.value }))
+            }
             style={styles.input}
             disabled={actionLoading}
           >
@@ -212,7 +239,9 @@ export default function Users({ setCurrentScreen }) {
           >
             {actionLoading
               ? "Saving..."
-              : editingId ? "Update" : "Create"}
+              : editingId
+              ? "Update"
+              : "Create"}
           </button>
 
           {editingId && (
@@ -220,7 +249,6 @@ export default function Users({ setCurrentScreen }) {
               Cancel
             </button>
           )}
-
         </div>
       </div>
 
@@ -240,7 +268,6 @@ export default function Users({ setCurrentScreen }) {
 
           <tbody>
             {users.map((u) => {
-
               const isCurrentUser = u.id === currentUser?.id;
 
               return (
@@ -270,18 +297,19 @@ export default function Users({ setCurrentScreen }) {
                       Delete
                     </button>
                   </td>
-
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-
     </div>
   );
 }
 
+// =========================
+// 🎨 STYLES
+// =========================
 const styles = {
   page: { maxWidth: 1000, margin: "0 auto" },
   title: { color: "#FACC15" },
@@ -290,29 +318,29 @@ const styles = {
     padding: 20,
     borderRadius: 12,
     border: "1px solid #eee",
-    marginTop: 20
+    marginTop: 20,
   },
   form: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))",
-    gap: 10
+    gap: 10,
   },
   input: {
     padding: 10,
     borderRadius: 8,
-    border: "1px solid #ddd"
+    border: "1px solid #ddd",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    marginTop: 10
+    marginTop: 10,
   },
   primaryBtn: {
     background: "#FACC15",
     border: "none",
     padding: 10,
     borderRadius: 8,
-    cursor: "pointer"
+    cursor: "pointer",
   },
   grayBtn: {
     background: "#eee",
@@ -320,7 +348,7 @@ const styles = {
     padding: 8,
     marginRight: 5,
     borderRadius: 6,
-    cursor: "pointer"
+    cursor: "pointer",
   },
   dangerBtn: {
     background: "#dc2626",
@@ -328,7 +356,7 @@ const styles = {
     border: "none",
     padding: 8,
     borderRadius: 6,
-    cursor: "pointer"
+    cursor: "pointer",
   },
   backBtn: {
     marginBottom: 10,
@@ -336,18 +364,15 @@ const styles = {
     border: "none",
     background: "#FACC15",
     borderRadius: 6,
-    cursor: "pointer"
+    cursor: "pointer",
   },
   msg: { padding: 20 },
-  error: {
-    padding: 20,
-    color: "#991b1b"
-  },
+  error: { padding: 20, color: "#991b1b" },
   success: {
     background: "#dcfce7",
     color: "#166534",
     padding: 10,
     borderRadius: 6,
-    marginTop: 10
-  }
+    marginTop: 10,
+  },
 };

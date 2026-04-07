@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.models.payment import Payment
 from app.models.sale import Sale
 from app.models.ledger import Ledger
@@ -7,47 +8,40 @@ from app.models.ledger import Ledger
 # =========================
 # 🔷 CREATE PAYMENT (NO COMMIT)
 # =========================
-def create_payment(
-    db: Session,
-    sale_id: int,
-    amount: float,
-    method: str
-):
+def create_payment(db: Session, sale_id: int, amount: float, method: str):
+    if amount <= 0:
+        raise ValueError("Invalid payment amount")
+
     payment = Payment(
         sale_id=sale_id,
-        amount=amount,
+        amount=float(amount),
         payment_method=method,
         status="pending"
     )
 
     db.add(payment)
-    db.flush()  # 🔥 FIX
-
-    return payment
-
-
-# =========================
-# 🔷 ATTACH CHECKOUT ID (MPESA)
-# =========================
-def attach_checkout_request_id(
-    db: Session,
-    payment_id: int,
-    checkout_request_id: str
-):
-    payment = db.query(Payment).filter(Payment.id == payment_id).first()
-
-    if not payment:
-        return None
-
-    payment.checkout_request_id = checkout_request_id
-
     db.flush()
 
     return payment
 
 
 # =========================
-# 🔥 SYNC SALE FINANCIALS
+# 🔷 ATTACH CHECKOUT ID
+# =========================
+def attach_checkout_request_id(db: Session, payment_id: int, checkout_request_id: str):
+    payment = db.query(Payment).filter(Payment.id == payment_id).first()
+
+    if not payment:
+        return None
+
+    payment.checkout_request_id = checkout_request_id
+    db.flush()
+
+    return payment
+
+
+# =========================
+# 🔥 SYNC SALE FINANCIALS (IMPROVED)
 # =========================
 def sync_sale_financials(db: Session, sale_id: int):
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
@@ -55,80 +49,72 @@ def sync_sale_financials(db: Session, sale_id: int):
     if not sale:
         return None
 
-    payments = db.query(Payment).filter(
+    total_paid = db.query(
+        func.coalesce(func.sum(Payment.amount), 0)
+    ).filter(
         Payment.sale_id == sale_id,
         Payment.status == "completed"
-    ).all()
+    ).scalar()
 
-    total_paid = sum(float(p.amount) for p in payments)
+    total_paid = float(total_paid or 0)
 
     sale.amount_paid = total_paid
     sale.balance = float(sale.total_amount) - total_paid
 
     if sale.balance <= 0:
         sale.status = "paid"
-    else:
+    elif total_paid > 0:
         sale.status = "partial"
+    else:
+        sale.status = "pending"
 
     db.flush()
 
     return sale
 
+
 # =========================
 # 🔥 MARK CASH PAYMENT
 # =========================
-def mark_cash_payment(
-    db: Session,
-    sale_id: int,
-    amount: float
-):
-    try:
-        sale = db.query(Sale).filter(Sale.id == sale_id).first()
-        if not sale:
-            raise ValueError("Sale not found")
+def mark_cash_payment(db: Session, sale_id: int, amount: float):
+    if amount <= 0:
+        raise ValueError("Invalid payment amount")
 
-        if amount <= 0:
-            raise ValueError("Invalid payment amount")
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise ValueError("Sale not found")
 
-        # 💳 Create payment
-        payment = Payment(
-            sale_id=sale_id,
-            amount=amount,
-            payment_method="cash",
-            status="completed"
-        )
+    # 💳 Payment
+    payment = Payment(
+        sale_id=sale_id,
+        amount=float(amount),
+        payment_method="cash",
+        status="completed"
+    )
 
-        db.add(payment)
-        db.flush()  # 🔥 CRITICAL FIX
+    db.add(payment)
+    db.flush()
 
-        # 📒 Ledger entry (LINKED)
-        ledger_entry = Ledger(
-            type="sale",
-            amount=amount,
-            method="cash",
-            reference=None,
-            description=f"Cash payment for sale #{sale_id}",
-            sale_id=sale_id,
-            payment_id=payment.id   # 🔥 FIXES YOUR ERROR
-        )
+    # 📒 Ledger (idempotent safe: no duplicate check needed for cash)
+    ledger_entry = Ledger(
+        type="sale",
+        amount=amount,
+        method="cash",
+        reference=None,
+        description=f"Cash payment for sale #{sale_id}",
+        sale_id=sale_id,
+        payment_id=payment.id
+    )
 
-        db.add(ledger_entry)
+    db.add(ledger_entry)
 
-        return payment
-
-    except Exception as e:
-        print("🔥 PAYMENT ERROR:", str(e))
-        raise
+    return payment
 
 
 # =========================
-# 🔷 MARK PAYMENT SUCCESS (MPESA)
+# 🔥 MARK PAYMENT SUCCESS (MPESA) — HARDENED
 # =========================
-def mark_payment_success(
-    db: Session,
-    checkout_request_id: str,
-    mpesa_code: str
-):
+def mark_payment_success(db: Session, checkout_request_id: str, mpesa_code: str):
     payment = db.query(Payment).filter(
         Payment.checkout_request_id == checkout_request_id
     ).first()
@@ -136,21 +122,29 @@ def mark_payment_success(
     if not payment:
         return None
 
+    # 🔒 IDEMPOTENCY CHECK (CRITICAL)
+    if payment.status == "completed":
+        return payment
+
     payment.status = "completed"
     payment.reference = mpesa_code
 
-    # 📒 Ledger entry (LINKED)
-    ledger_entry = Ledger(
-        type="sale",
-        amount=payment.amount,
-        method="mpesa",
-        reference=mpesa_code,
-        description=f"M-Pesa payment for sale #{payment.sale_id}",
-        sale_id=payment.sale_id,
-        payment_id=payment.id   # 🔥 FIX
-    )
+    # 📒 Prevent duplicate ledger entry
+    existing = db.query(Ledger).filter(
+        Ledger.payment_id == payment.id
+    ).first()
 
-    db.add(ledger_entry)
+    if not existing:
+        ledger_entry = Ledger(
+            type="sale",
+            amount=payment.amount,
+            method="mpesa",
+            reference=mpesa_code,
+            description=f"M-Pesa payment for sale #{payment.sale_id}",
+            sale_id=payment.sale_id,
+            payment_id=payment.id
+        )
+        db.add(ledger_entry)
 
     sync_sale_financials(db, payment.sale_id)
 
@@ -163,16 +157,16 @@ def mark_payment_success(
 # =========================
 # 🔷 MARK PAYMENT FAILED
 # =========================
-def mark_payment_failed(
-    db: Session,
-    checkout_request_id: str
-):
+def mark_payment_failed(db: Session, checkout_request_id: str):
     payment = db.query(Payment).filter(
         Payment.checkout_request_id == checkout_request_id
     ).first()
 
     if not payment:
         return None
+
+    if payment.status == "completed":
+        return payment  # do not downgrade
 
     payment.status = "failed"
 
@@ -190,12 +184,14 @@ def get_payments_by_sale(db: Session, sale_id: int):
 
 
 # =========================
-# 🔷 TOTAL PAID
+# 🔷 TOTAL PAID (FAST)
 # =========================
 def get_total_paid(db: Session, sale_id: int):
-    payments = db.query(Payment).filter(
+    total = db.query(
+        func.coalesce(func.sum(Payment.amount), 0)
+    ).filter(
         Payment.sale_id == sale_id,
         Payment.status == "completed"
-    ).all()
+    ).scalar()
 
-    return sum(p.amount for p in payments)
+    return float(total or 0)

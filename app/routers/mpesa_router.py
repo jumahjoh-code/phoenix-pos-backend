@@ -16,31 +16,34 @@ from app.schemas.payment import STKPushRequest
 
 from app.models.sale import Sale
 from app.models.ledger import Ledger
-from app.models.payment import Payment  # 🔥 NEW
+from app.models.payment import Payment
+
 
 router = APIRouter(prefix="/mpesa", tags=["M-Pesa"])
-
 logger = logging.getLogger(__name__)
 
 
 # =========================
-# STK PUSH ENDPOINT
+# 📲 STK PUSH (SAFE)
 # =========================
 @router.post("/stk-push")
-def initiate_stk_push(
-    payload: STKPushRequest,
-    db: Session = Depends(get_db)
-):
+def initiate_stk_push(payload: STKPushRequest, db: Session = Depends(get_db)):
+
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+
     try:
         logger.info(f"STK REQUEST: {payload.dict()}")
 
-        payment = create_payment(
-            db,
-            payload.sale_id,
-            payload.amount,
-            "mpesa"
-        )
+        # 🔒 Ensure sale exists
+        sale = db.query(Sale).filter(Sale.id == payload.sale_id).first()
+        if not sale:
+            raise HTTPException(status_code=404, detail="Sale not found")
 
+        # 💳 Create payment
+        payment = create_payment(db, payload.sale_id, payload.amount, "mpesa")
+
+        # 📲 Send STK
         stk_response = stk_push(
             payload.phone,
             payload.amount,
@@ -50,48 +53,36 @@ def initiate_stk_push(
         logger.info(f"STK RESPONSE: {stk_response}")
 
         if "error" in stk_response:
-            return {
-                "success": False,
-                "message": "STK push failed",
-                "details": stk_response.get("details")
-            }
+            raise HTTPException(status_code=500, detail="STK push failed")
 
         checkout_id = stk_response.get("CheckoutRequestID")
 
         if not checkout_id:
-            return {
-                "success": False,
-                "message": "No CheckoutRequestID returned",
-                "response": stk_response
-            }
+            raise HTTPException(status_code=500, detail="Missing CheckoutRequestID")
 
         attach_checkout_request_id(db, payment.id, checkout_id)
 
         return {
             "success": True,
-            "message": "STK push sent",
             "checkout_request_id": checkout_id,
-            "customer_message": stk_response.get("CustomerMessage")
+            "message": stk_response.get("CustomerMessage")
         }
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         logger.error(f"STK ERROR: {str(e)}")
-
-        return {
-            "success": False,
-            "message": "STK push error",
-            "error": str(e)
-        }
+        raise HTTPException(status_code=500, detail="STK push error")
 
 
 # =========================
-# CALLBACK (SAFE VERSION)
+# 📥 CALLBACK (IDEMPOTENT)
 # =========================
 @router.post("/callback")
 async def mpesa_callback(request: Request, db: Session = Depends(get_db)):
     try:
         data = await request.json()
-
         logger.info(f"M-Pesa Callback: {data}")
 
         stk_callback = data.get("Body", {}).get("stkCallback", {})
@@ -102,7 +93,7 @@ async def mpesa_callback(request: Request, db: Session = Depends(get_db)):
         if not checkout_request_id:
             return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
-        # ❌ FAILED PAYMENT
+        # ❌ FAILED
         if result_code != 0:
             mark_payment_failed(db, checkout_request_id)
             return {"ResultCode": 0, "ResultDesc": "Accepted"}
@@ -112,85 +103,70 @@ async def mpesa_callback(request: Request, db: Session = Depends(get_db)):
         metadata = {item["Name"]: item.get("Value") for item in metadata_items}
 
         mpesa_code = metadata.get("MpesaReceiptNumber")
-        amount = metadata.get("Amount")
+        amount = float(metadata.get("Amount", 0))
 
-        # 🔥 DUPLICATE PROTECTION
-        existing_ledger = db.query(Ledger).filter(
-            Ledger.reference == mpesa_code
+        if not mpesa_code:
+            logger.warning("Missing M-Pesa code")
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+        # 🔒 IDEMPOTENCY (PRIMARY CHECK)
+        existing_payment = db.query(Payment).filter(
+            Payment.reference == mpesa_code
         ).first()
 
-        if existing_ledger:
+        if existing_payment:
             logger.warning(f"Duplicate callback ignored: {mpesa_code}")
             return {"ResultCode": 0, "ResultDesc": "Already processed"}
 
-        # 🔥 MARK PAYMENT SUCCESS
+        # 🔥 MARK SUCCESS (handles ledger + sync)
         payment = mark_payment_success(db, checkout_request_id, mpesa_code)
 
         if not payment:
             logger.error("Payment not found")
             return {"ResultCode": 0, "ResultDesc": "Payment not found"}
 
-        # 🔥 CREATE LEDGER ENTRY
-        sale = db.query(Sale).filter(Sale.id == payment.sale_id).first()
-
-        if sale:
-            ledger_entry = Ledger(
-                type="sale",
-                amount=amount,
-                method="mpesa_business",
-                reference=mpesa_code,
-                description=f"M-Pesa STK sale #{sale.id}",
-                created_at=datetime.utcnow(),
-            )
-
-            db.add(ledger_entry)
-            db.commit()
-
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     except Exception as e:
         logger.error(f"Callback Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Callback failed")
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+        # ⚠️ Always return 200 to M-Pesa
 
 
 # =========================
-# 🔥 M-PESA RECONCILIATION (TODAY)
+# 📊 RECONCILIATION (FIXED)
 # =========================
 @router.get("/reconciliation/today")
 def mpesa_reconciliation_today(db: Session = Depends(get_db)):
 
     today = date.today()
 
-    # Ledger (business mpesa)
-    ledger_entries = db.query(Ledger).filter(
-        Ledger.method == "mpesa_business",
-        func.date(Ledger.created_at) == today
-    ).all()
-
-    ledger_total = sum(e.amount for e in ledger_entries)
-
-    # Payments
+    # Payments (source of truth)
     payments = db.query(Payment).filter(
-        Payment.method == "mpesa",
+        Payment.payment_method == "mpesa",
         Payment.status == "completed",
         func.date(Payment.created_at) == today
     ).all()
 
     payment_total = sum(p.amount for p in payments)
 
-    # Matching
-    ledger_refs = set(e.reference for e in ledger_entries if e.reference)
-    payment_refs = set(p.mpesa_code for p in payments if p.mpesa_code)
+    # Ledger entries
+    ledger_entries = db.query(Ledger).filter(
+        Ledger.method == "mpesa",
+        func.date(Ledger.created_at) == today
+    ).all()
 
-    missing_in_ledger = payment_refs - ledger_refs
-    missing_in_payments = ledger_refs - payment_refs
+    ledger_total = sum(e.amount for e in ledger_entries)
+
+    payment_refs = set(p.reference for p in payments if p.reference)
+    ledger_refs = set(e.reference for e in ledger_entries if e.reference)
 
     return {
-        "ledger_total": ledger_total,
         "payment_total": payment_total,
+        "ledger_total": ledger_total,
         "difference": payment_total - ledger_total,
-        "matched_transactions": len(ledger_refs & payment_refs),
-        "missing_in_ledger": list(missing_in_ledger),
-        "missing_in_payments": list(missing_in_payments),
+        "matched": len(payment_refs & ledger_refs),
+        "missing_in_ledger": list(payment_refs - ledger_refs),
+        "missing_in_payments": list(ledger_refs - payment_refs),
         "status": "OK" if payment_total == ledger_total else "MISMATCH"
     }

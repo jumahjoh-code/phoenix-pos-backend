@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, ResponsiveContainer
@@ -22,7 +22,6 @@ import {
 } from "../core/services/dashboardService";
 
 export default function Dashboard() {
-
   const [darkMode, setDarkMode] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -35,6 +34,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  const mountedRef = useRef(true);
 
   const formatKES = (v) =>
     "KES " + Number(v || 0).toLocaleString();
@@ -54,64 +55,78 @@ export default function Dashboard() {
       };
 
   // =========================
-  // DATA LOADER (FIXED)
+  // 📊 SAFE DATA LOADER
   // =========================
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError("");
 
-    const [summaryRes, cashierRes, aiRes, salesRes] = await Promise.all([
-      getTodaySummary(),
-      getCashierPerformance(),
-      getDashboardSummary(),
-      getRecentSales()
-    ]);
+    try {
+      const [summaryRes, cashierRes, aiRes, salesRes] = await Promise.all([
+        getTodaySummary(),
+        getCashierPerformance(),
+        getDashboardSummary(),
+        getRecentSales()
+      ]);
 
-    // ❌ HANDLE ERRORS FIRST
-    if (!summaryRes.ok || !cashierRes.ok || !aiRes.ok || !salesRes.ok) {
-      console.error("❌ Dashboard API Error:", {
-        summaryRes,
-        cashierRes,
-        aiRes,
-        salesRes
-      });
+      if (!summaryRes.ok || !cashierRes.ok || !aiRes.ok || !salesRes.ok) {
+        throw new Error("Dashboard API failed");
+      }
 
-      setError("Failed to load dashboard");
-      setLoading(false);
-      return;
+      const summaryData = summaryRes.data || {};
+      const cashierData = Array.isArray(cashierRes.data?.data)
+        ? cashierRes.data.data
+        : [];
+      const aiData = aiRes.data || null;
+      const sales = Array.isArray(salesRes.data) ? salesRes.data : [];
+
+      if (!mountedRef.current) return;
+
+      setSummary(summaryData);
+      setCashiers(cashierData);
+      setAI(aiData);
+      setSalesData(sales);
+      setInventoryValue(aiData?.inventory_value || 0);
+      setLastUpdated(new Date());
+
+    } catch (err) {
+      console.error("❌ Dashboard Error:", err);
+      if (mountedRef.current) {
+        setError("Failed to load dashboard");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
-
-    // ✅ EXTRACT DATA
-    const summary = summaryRes.data;
-    const cashierData = cashierRes.data;
-    const aiData = aiRes.data;
-    const sales = salesRes.data;
-
-    setSummary(summary || {});
-    setCashiers(Array.isArray(cashierData?.data) ? cashierData.data : []);
-    setAI(aiData || null);
-    setSalesData(Array.isArray(sales) ? sales : []);
-
-    setInventoryValue(aiData?.inventory_value || 0);
-    setLastUpdated(new Date());
-
-    console.log("📊 Dashboard Loaded:", {
-      summary,
-      cashierData,
-      sales
-    });
-
-    setLoading(false);
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchData();
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, [fetchData]);
 
+  // AUTO REFRESH
   useEffect(() => {
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(() => {
+      if (navigator.onLine) {
+        fetchData();
+      }
+    }, 60000);
+
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // =========================
+  // 🔍 FILTER
+  // =========================
+  const filteredCashiers = cashiers.filter((c) =>
+    c?.cashier?.toLowerCase().includes(search.toLowerCase())
+  );
 
   // =========================
   // UI STATES
@@ -128,10 +143,6 @@ export default function Dashboard() {
     );
   }
 
-  const filteredCashiers = cashiers.filter(c =>
-    c?.cashier?.toLowerCase().includes(search.toLowerCase())
-  );
-
   return (
     <div style={{
       background: theme.bg,
@@ -142,11 +153,9 @@ export default function Dashboard() {
 
       {/* TOP BAR */}
       <div style={topBar}>
-
         <h2 style={{ color: colors.primary }}>Dashboard</h2>
 
         <div style={topControls}>
-
           <div style={searchBox(theme)}>
             <Search size={14} />
             <input
@@ -157,7 +166,10 @@ export default function Dashboard() {
             />
           </div>
 
-          <div onClick={() => setDarkMode(!darkMode)} style={{ cursor: "pointer" }}>
+          <div
+            onClick={() => setDarkMode(!darkMode)}
+            style={{ cursor: "pointer" }}
+          >
             {darkMode ? <Sun /> : <Moon />}
           </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { API } from "config";
 
 export default function MpesaCheckout({ total, cartItems, onSuccess }) {
@@ -6,32 +6,51 @@ export default function MpesaCheckout({ total, cartItems, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  const pollingRef = useRef(null);
+  const mountedRef = useRef(true);
+
   // =========================
   // 📱 FORMAT PHONE
   // =========================
   const formatPhone = (value) => {
-    let phone = value.replace(/\D/g, "");
+    let p = value.replace(/\D/g, "");
 
-    if (phone.startsWith("0")) {
-      phone = "254" + phone.substring(1);
-    }
+    if (p.startsWith("0")) p = "254" + p.slice(1);
+    if (p.startsWith("7") && p.length === 9) p = "254" + p;
 
-    if (phone.startsWith("7") && phone.length === 9) {
-      phone = "254" + phone;
-    }
-
-    return phone;
+    return p;
   };
 
   const isValidPhone = (phone) => /^254\d{9}$/.test(phone);
 
   // =========================
-  // 🔁 POLL PAYMENT STATUS
+  // 🧹 CLEANUP
   // =========================
-  const pollPaymentStatus = (reference) => {
+  const stopPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      stopPolling();
+    };
+  }, []);
+
+  // =========================
+  // 🔁 POLL PAYMENT STATUS (SAFE)
+  // =========================
+  const pollPaymentStatus = useCallback((reference) => {
     let attempts = 0;
 
-    const interval = setInterval(async () => {
+    stopPolling();
+
+    pollingRef.current = setInterval(async () => {
       attempts++;
 
       try {
@@ -42,34 +61,54 @@ export default function MpesaCheckout({ total, cartItems, onSuccess }) {
         const data = await res.json();
 
         if (data.status === "success") {
-          clearInterval(interval);
+          stopPolling();
+
+          if (!mountedRef.current) return;
+
           setMessage("✅ Payment confirmed!");
-          onSuccess && onSuccess();
+          setLoading(false);
+
+          onSuccess?.(data);
+        }
+
+        if (data.status === "failed") {
+          stopPolling();
+
+          if (!mountedRef.current) return;
+
+          setMessage("❌ Payment failed");
+          setLoading(false);
         }
 
         if (attempts > 20) {
-          clearInterval(interval);
+          stopPolling();
+
+          if (!mountedRef.current) return;
+
           setMessage("⏱️ Payment timeout. Try again.");
+          setLoading(false);
         }
 
       } catch (err) {
         console.error("Polling error:", err);
       }
     }, 3000);
-  };
+  }, [onSuccess]);
 
   // =========================
   // 💳 HANDLE PAYMENT
   // =========================
   const handlePayment = async () => {
-    const numericAmount = Number(total);
+    if (loading) return;
 
-    if (!numericAmount || numericAmount <= 0) {
+    const amount = Number(total);
+
+    if (!amount || amount <= 0) {
       setMessage("Invalid amount");
       return;
     }
 
-    if (!phone) {
+    if (!phone.trim()) {
       setMessage("Enter phone number");
       return;
     }
@@ -77,22 +116,22 @@ export default function MpesaCheckout({ total, cartItems, onSuccess }) {
     const formattedPhone = formatPhone(phone);
 
     if (!isValidPhone(formattedPhone)) {
-      setMessage("Invalid phone format (07XXXXXXXX)");
+      setMessage("Invalid phone (use 07XXXXXXXX)");
       return;
     }
 
     const payload = {
       phone: formattedPhone,
-      amount: numericAmount,
+      amount,
     };
 
     console.log("🚀 STK Payload:", payload);
 
     setLoading(true);
-    setMessage("Sending STK push...");
+    setMessage("📲 Sending STK push...");
 
     try {
-      const response = await fetch(`${API}/mpesa/stk-push`, {
+      const res = await fetch(`${API}/mpesa/stk-push`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -100,29 +139,34 @@ export default function MpesaCheckout({ total, cartItems, onSuccess }) {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data = await res.json();
 
-      if (!response.ok) {
+      if (!res.ok) {
         throw new Error(data.detail || "STK failed");
       }
 
-      if (data.success) {
-        setMessage("📲 Check your phone and enter PIN");
-
-        const reference =
-          data.reference || data.checkout_request_id;
-
-        pollPaymentStatus(reference);
-
-      } else {
-        setMessage(data.message || "Payment failed");
+      if (!data.success) {
+        throw new Error(data.message || "Payment failed");
       }
 
-    } catch (error) {
-      console.error("STK Error:", error);
-      setMessage(error.message || "Network error");
-    } finally {
-      setLoading(false);
+      const reference =
+        data.reference || data.checkout_request_id;
+
+      if (!reference) {
+        throw new Error("Missing payment reference");
+      }
+
+      setMessage("📲 Check your phone and enter PIN");
+
+      pollPaymentStatus(reference);
+
+    } catch (err) {
+      console.error("STK Error:", err);
+
+      if (mountedRef.current) {
+        setMessage(err.message || "Network error");
+        setLoading(false);
+      }
     }
   };
 
@@ -134,10 +178,11 @@ export default function MpesaCheckout({ total, cartItems, onSuccess }) {
 
       <input
         type="text"
-        placeholder="Enter phone (07XXXXXXXX)"
+        placeholder="07XXXXXXXX"
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
         style={styles.input}
+        disabled={loading}
       />
 
       <button
@@ -145,8 +190,21 @@ export default function MpesaCheckout({ total, cartItems, onSuccess }) {
         disabled={loading}
         style={styles.button}
       >
-        {loading ? "Processing..." : "Pay with M-Pesa"}
+        {loading ? "Waiting for payment..." : "Pay with M-Pesa"}
       </button>
+
+      {loading && (
+        <button
+          onClick={() => {
+            stopPolling();
+            setLoading(false);
+            setMessage("Payment cancelled");
+          }}
+          style={styles.cancelBtn}
+        >
+          Cancel
+        </button>
+      )}
 
       {message && <p style={styles.message}>{message}</p>}
     </div>
@@ -177,6 +235,17 @@ const styles = {
     width: "100%",
     padding: 12,
     background: "#16a34a",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+  },
+
+  cancelBtn: {
+    width: "100%",
+    marginTop: 8,
+    padding: 10,
+    background: "#dc2626",
     color: "#fff",
     border: "none",
     borderRadius: 8,

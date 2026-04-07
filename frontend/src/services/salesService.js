@@ -1,24 +1,32 @@
 import { authFetch } from "../core/api/apiClient";
 
 // ==========================
-// COMPLETE SALE (NEW CORE)
+// COMPLETE SALE (FINAL)
 // ==========================
 export const completeSale = async (saleData) => {
-  try {
-    console.log("🧾 COMPLETE SALE PAYLOAD:", saleData);
+  console.log("🧾 COMPLETE SALE PAYLOAD:", saleData);
 
-    const res = await authFetch("/sales/complete", {
-      method: "POST",
-      body: JSON.stringify(saleData),
-    });
+  const res = await authFetch("/sales/complete", {
+    method: "POST",
+    body: JSON.stringify(saleData),
+  });
 
-    const data = await res.json();
-
-    console.log("✅ COMPLETE SALE RESPONSE:", data);
-
-    return data;
-  } catch (error) {
-    console.error("❌ COMPLETE SALE ERROR:", error);
-    throw error;
+  // ❌ HANDLE ERROR
+  if (!res.ok) {
+    console.error("❌ COMPLETE SALE ERROR:", res.error);
+    return {
+      ok: false,
+      error: res.error || "Sale failed",
+      status: res.status,
+    };
   }
+
+  console.log("✅ COMPLETE SALE RESPONSE:", res.data);
+
+  // ✅ RETURN STANDARDIZED RESPONSE
+  return {
+    ok: true,
+    data: res.data,
+    status: res.status,
+  };
 };

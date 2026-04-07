@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { API } from "../config";
 
 export default function MpesaAgentScreen() {
-
   const [amount, setAmount] = useState("");
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13,25 +12,45 @@ export default function MpesaAgentScreen() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
+  const mountedRef = useRef(true);
+
   const formatKES = (val) =>
     "KES " + Number(val || 0).toLocaleString();
 
-  useEffect(() => {
-    fetchBalances();
-    fetchTransactions();
-  }, []);
+  // =========================
+  // 📱 PHONE FORMAT
+  // =========================
+  const formatPhone = (value) => {
+    let p = value.replace(/\D/g, "");
 
-  const fetchBalances = async () => {
+    if (p.startsWith("0")) p = "254" + p.slice(1);
+    if (p.startsWith("7") && p.length === 9) p = "254" + p;
+
+    return p;
+  };
+
+  const isValidPhone = (p) => /^254\d{9}$/.test(p);
+
+  // =========================
+  // 📥 FETCH BALANCES
+  // =========================
+  const fetchBalances = useCallback(async () => {
     try {
       const res = await fetch(`${API}/ledger/summary`);
       const data = await res.json();
-      setLedger(data);
+
+      if (mountedRef.current) {
+        setLedger(data || {});
+      }
     } catch (err) {
       console.error("Balance error:", err);
     }
-  };
+  }, []);
 
-  const fetchTransactions = async () => {
+  // =========================
+  // 📥 FETCH TRANSACTIONS
+  // =========================
+  const fetchTransactions = useCallback(async () => {
     try {
       const res = await fetch(`${API}/ledger`);
       const data = await res.json();
@@ -39,27 +58,44 @@ export default function MpesaAgentScreen() {
       const safeData = Array.isArray(data) ? data : [];
 
       const filtered = safeData.filter(
-        (t) => t.type === "mpesa_deposit" || t.type === "mpesa_withdraw"
+        (t) =>
+          t.type === "mpesa_deposit" ||
+          t.type === "mpesa_withdraw"
       );
 
-      setTransactions(filtered.slice(0, 10));
-
+      if (mountedRef.current) {
+        setTransactions(filtered.slice(0, 10));
+      }
     } catch (err) {
       console.error("Transaction error:", err);
     }
-  };
+  }, []);
 
+  useEffect(() => {
+    mountedRef.current = true;
+
+    fetchBalances();
+    fetchTransactions();
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchBalances, fetchTransactions]);
+
+  // =========================
+  // 💳 HANDLE TRANSACTION
+  // =========================
   const handleTransaction = async (type) => {
-
     if (loading) return;
 
     setError(null);
     setSuccess(null);
 
     const parsedAmount = Number(amount);
+    const formattedPhone = formatPhone(phone);
 
-    if (!phone || phone.length < 10) {
-      setError("Enter valid phone number");
+    if (!isValidPhone(formattedPhone)) {
+      setError("Enter valid phone (07XXXXXXXX)");
       return;
     }
 
@@ -79,56 +115,66 @@ export default function MpesaAgentScreen() {
         body: JSON.stringify({
           type,
           amount: parsedAmount,
-          phone,
+          phone: formattedPhone,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok || data.error) {
-        setError(data.error || data.detail || "Transaction failed");
-        return;
+        throw new Error(data.error || data.detail || "Transaction failed");
       }
 
-      setSuccess("✅ Transaction successful");
+      if (mountedRef.current) {
+        setSuccess("✅ Transaction successful");
+        setAmount("");
+        setPhone("");
+      }
 
-      setAmount("");
-      setPhone("");
-
-      fetchBalances();
-      fetchTransactions();
+      await fetchBalances();
+      await fetchTransactions();
 
     } catch (err) {
       console.error(err);
-      setError("❌ Server error");
+
+      if (mountedRef.current) {
+        setError(err.message || "❌ Server error");
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   return (
     <div style={container}>
-
       <h2>📱 M-Pesa Agent</h2>
 
+      {/* BALANCE */}
       <div style={balanceBox}>
         <div>
-          💵 Cash  
-          <div style={balanceValue}>{formatKES(ledger?.cash_balance)}</div>
+          💵 Cash
+          <div style={balanceValue}>
+            {formatKES(ledger?.cash_balance)}
+          </div>
         </div>
 
         <div>
-          📲 Float  
-          <div style={balanceValue}>{formatKES(ledger?.mpesa_agent_balance)}</div>
+          📲 Float
+          <div style={balanceValue}>
+            {formatKES(ledger?.mpesa_agent_balance)}
+          </div>
         </div>
       </div>
 
       {error && <div style={errorBox}>{error}</div>}
       {success && <div style={successBox}>{success}</div>}
 
+      {/* INPUTS */}
       <input
         style={input}
-        placeholder="Phone Number (07XXXXXXXX)"
+        placeholder="07XXXXXXXX"
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
         disabled={loading}
@@ -143,6 +189,7 @@ export default function MpesaAgentScreen() {
         disabled={loading}
       />
 
+      {/* ACTIONS */}
       <div style={btnGroup}>
         <button
           style={{ ...depositBtn, opacity: loading ? 0.6 : 1 }}
@@ -163,6 +210,7 @@ export default function MpesaAgentScreen() {
 
       {loading && <p style={{ marginTop: 10 }}>Processing...</p>}
 
+      {/* TRANSACTIONS */}
       <h3 style={{ marginTop: 30 }}>Recent Transactions</h3>
 
       <table style={table}>
@@ -177,106 +225,36 @@ export default function MpesaAgentScreen() {
 
         <tbody>
           {transactions.length === 0 ? (
-            <tr><td colSpan="4">No transactions</td></tr>
+            <tr>
+              <td colSpan="4">No transactions</td>
+            </tr>
           ) : (
             transactions.map((t, i) => (
               <tr key={i}>
-                <td style={{
-                  color: t.type === "mpesa_deposit" ? "green" : "red",
-                  fontWeight: "bold"
-                }}>
-                  {t.type === "mpesa_deposit" ? "Deposit" : "Withdraw"}
+                <td
+                  style={{
+                    color:
+                      t.type === "mpesa_deposit"
+                        ? "green"
+                        : "red",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {t.type === "mpesa_deposit"
+                    ? "Deposit"
+                    : "Withdraw"}
                 </td>
 
                 <td>{formatKES(t.amount)}</td>
                 <td>{t.description}</td>
-                <td>{new Date(t.created_at).toLocaleString()}</td>
+                <td>
+                  {new Date(t.created_at).toLocaleString()}
+                </td>
               </tr>
             ))
           )}
         </tbody>
       </table>
-
     </div>
   );
 }
-
-
-// ✅ STYLES (REQUIRED — prevents build crash)
-
-const container = {
-  padding: 30,
-  maxWidth: 600
-};
-
-const balanceBox = {
-  display: "flex",
-  justifyContent: "space-between",
-  marginBottom: 20,
-  padding: 15,
-  background: "#111827",
-  color: "#fff",
-  borderRadius: 10
-};
-
-const balanceValue = {
-  fontSize: 18,
-  fontWeight: "bold",
-  marginTop: 5
-};
-
-const input = {
-  width: "100%",
-  padding: 10,
-  marginTop: 10,
-  borderRadius: 8,
-  border: "1px solid #ccc"
-};
-
-const btnGroup = {
-  display: "flex",
-  gap: 10,
-  marginTop: 15
-};
-
-const depositBtn = {
-  flex: 1,
-  padding: 12,
-  background: "#16a34a",
-  color: "white",
-  border: "none",
-  borderRadius: 8,
-  cursor: "pointer"
-};
-
-const withdrawBtn = {
-  flex: 1,
-  padding: 12,
-  background: "#dc2626",
-  color: "white",
-  border: "none",
-  borderRadius: 8,
-  cursor: "pointer"
-};
-
-const table = {
-  width: "100%",
-  marginTop: 10,
-  borderCollapse: "collapse"
-};
-
-const errorBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  padding: 10,
-  marginTop: 10,
-  borderRadius: 6
-};
-
-const successBox = {
-  background: "#dcfce7",
-  color: "#166534",
-  padding: 10,
-  marginTop: 10,
-  borderRadius: 6
-};

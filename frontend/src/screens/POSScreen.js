@@ -31,42 +31,64 @@ export default function POSScreen() {
   const [error, setError] = useState(null);
 
   const barcodeRef = useRef();
+  const mountedRef = useRef(true);
 
   // =========================
-  // LOAD PRODUCTS
+  // LOAD PRODUCTS (SAFE)
   // =========================
   useEffect(() => {
+    mountedRef.current = true;
+
     const loadProducts = async () => {
-      const res = await getProducts();
+      try {
+        const res = await getProducts();
 
-      if (!res.ok) {
-        setError(res.error || "Cannot load products");
-        return;
+        if (!res.ok) {
+          if (mountedRef.current) {
+            setError(res.error || "Cannot load products");
+          }
+          return;
+        }
+
+        if (mountedRef.current) {
+          setProducts(res.data || []);
+        }
+      } catch (err) {
+        console.error("Product load failed:", err);
+        if (mountedRef.current) {
+          setError("Unexpected error loading products");
+        }
       }
-
-      setProducts(res.data || []);
     };
 
     loadProducts();
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
-  // AUTO FOCUS
+  // =========================
+  // AUTO FOCUS BARCODE
+  // =========================
   useEffect(() => {
     if (!isPaying && barcodeRef.current) {
       barcodeRef.current.focus();
     }
   }, [cart, isPaying]);
 
-  // AUTO SYNC
+  // =========================
+  // AUTO SYNC (SMART)
+  // =========================
   useEffect(() => {
     const interval = setInterval(() => {
-      if (navigator.onLine) {
+      if (navigator.onLine && !processing) {
         syncOfflineSales();
       }
     }, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [processing]);
 
   // =========================
   // CART LOGIC
@@ -85,6 +107,8 @@ export default function POSScreen() {
       const existing = prev.find((p) => p.id === product.id);
 
       if (existing) {
+        if (existing.quantity >= existing.stock) return prev;
+
         return prev.map((p) =>
           p.id === product.id
             ? { ...p, quantity: p.quantity + 1 }
@@ -138,22 +162,33 @@ export default function POSScreen() {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const clearCart = () => {
+    if (processing) return;
+    setCart([]);
+    setCashReceived("");
+  };
+
   const total = cart.reduce(
     (sum, item) => sum + item.retail_price * item.quantity,
     0
   );
 
   // =========================
-  // 💰 SAFE DERIVED VALUES
+  // 💰 SAFE VALUES
   // =========================
   const numericCash = Number(cashReceived || 0);
   const change = numericCash - total;
 
   // =========================
-  // COMPLETE SALE
+  // COMPLETE SALE (HARDENED)
   // =========================
   const handleCashPayment = async () => {
     if (processing) return;
+
+    if (cart.length === 0) {
+      alert("Cart is empty");
+      return;
+    }
 
     if (!numericCash || numericCash <= 0) {
       alert("Enter valid cash");
@@ -167,45 +202,50 @@ export default function POSScreen() {
 
     setProcessing(true);
 
-    const payload = {
-      items: cart.map((item) => ({
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.retail_price,
-      })),
-      total: total,
-      payments: [
-        {
-          amount: numericCash,
-          method: "cash",
-        },
-      ],
-    };
+    try {
+      const payload = {
+        items: cart.map((item) => ({
+          product_id: item.id,
+          quantity: item.quantity,
+          price: item.retail_price,
+        })),
+        total,
+        payments: [
+          {
+            amount: numericCash,
+            method: "cash",
+          },
+        ],
+      };
 
-    console.log("🧾 COMPLETE SALE PAYLOAD:", payload);
+      console.log("🧾 SALE PAYLOAD:", payload);
 
-    const res = await completeSale(payload);
+      const res = await completeSale(payload);
 
-    if (!res.ok) {
-      console.error(res.error);
-      alert(res.error || "Sale failed");
+      if (!res.ok) {
+        throw new Error(res.error || "Sale failed");
+      }
+
+      console.log("✅ SALE SUCCESS:", res.data);
+
+      // ✅ RECEIPT
+      setReceipt(res.data);
+
+      // ✅ RESET STATE
+      setCart([]);
+      setCashReceived("");
+      setIsPaying(false);
+    } catch (err) {
+      console.error("❌ SALE ERROR:", err);
+      alert(err.message || "Sale failed");
+    } finally {
       setProcessing(false);
-      return;
     }
-
-    console.log("✅ COMPLETE SALE RESULT:", res.data);
-
-    // ✅ Show receipt
-    setReceipt(res.data);
-
-    // RESET
-    setCart([]);
-    setCashReceived("");
-    setIsPaying(false);
-
-    setProcessing(false);
   };
 
+  // =========================
+  // ERROR STATE
+  // =========================
   if (error) {
     return (
       <div style={{ padding: spacing.lg, color: colors.danger }}>
@@ -214,6 +254,9 @@ export default function POSScreen() {
     );
   }
 
+  // =========================
+  // UI
+  // =========================
   return (
     <div
       style={{

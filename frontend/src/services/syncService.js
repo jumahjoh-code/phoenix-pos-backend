@@ -2,7 +2,7 @@
 // 🔄 SYNC SERVICE (CORE)
 // =========================
 
-import { getQueue, getQueueCount } from "./offlineQueue";
+import { getQueue, getQueueCount, removeById } from "./offlineQueue";
 
 // =========================
 // 📡 INTERNAL STATE
@@ -21,7 +21,6 @@ let syncState = {
 export const subscribeToSync = (callback) => {
   listeners.push(callback);
 
-  // send current state immediately
   callback(syncState);
 
   return () => {
@@ -30,7 +29,7 @@ export const subscribeToSync = (callback) => {
 };
 
 // =========================
-// 📢 NOTIFY ALL LISTENERS
+// 📢 NOTIFY
 // =========================
 const notify = (newState) => {
   syncState = {
@@ -42,12 +41,26 @@ const notify = (newState) => {
 };
 
 // =========================
-// 📊 UPDATE PENDING COUNT
+// 📊 UPDATE PENDING
 // =========================
 export const updatePendingCount = () => {
-  notify({
-    pending: getQueueCount(),
-  });
+  notify({ pending: getQueueCount() });
+};
+
+// =========================
+// 🔐 INJECT TOKEN
+// =========================
+const injectAuth = (options = {}) => {
+  const token = localStorage.getItem("access_token");
+
+  return {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  };
 };
 
 // =========================
@@ -55,47 +68,59 @@ export const updatePendingCount = () => {
 // =========================
 export const syncQueue = async () => {
   if (isSyncing) return;
+  if (!navigator.onLine) return;
 
-  let queue = getQueue();
+  const queue = getQueue();
+
   if (!queue.length) {
     notify({ status: "online", pending: 0 });
     return;
   }
 
   isSyncing = true;
-  notify({ status: "syncing", pending: queue.length });
+
+  notify({
+    status: "syncing",
+    pending: queue.length,
+  });
 
   try {
-    while (queue.length > 0) {
-      const item = queue[0];
-
+    for (const item of queue) {
       try {
-        const res = await fetch(item.url, item.options);
+        const res = await fetch(item.url, injectAuth(item.options));
 
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
 
-        // ✅ remove ONLY the processed item
-        queue.shift();
-        localStorage.setItem("offline_queue", JSON.stringify(queue));
+        // ✅ remove by ID (safer than shift)
+        removeById(item.id);
 
         notify({
           status: "syncing",
-          pending: queue.length,
+          pending: getQueueCount(),
         });
 
       } catch (err) {
-        console.error("❌ Failed item:", item, err);
+        console.error("❌ Sync failed for item:", item, err);
 
-        // stop sync — keep remaining items
+        // retry logic
+        const retries = (item.retries || 0) + 1;
+
+        if (retries >= 5) {
+          console.error("❌ Dropping item after max retries:", item.id);
+          removeById(item.id);
+        } else {
+          item.retries = retries;
+        }
+
         notify({
           status: "error",
-          pending: queue.length,
+          pending: getQueueCount(),
         });
 
         isSyncing = false;
-        return;
+        return; // stop on first failure (important)
       }
     }
 
@@ -105,7 +130,7 @@ export const syncQueue = async () => {
     });
 
   } catch (error) {
-    console.error("❌ Sync failed:", error);
+    console.error("❌ Sync fatal error:", error);
 
     notify({
       status: "error",
@@ -117,7 +142,7 @@ export const syncQueue = async () => {
 };
 
 // =========================
-// 🌐 NETWORK STATE HANDLERS
+// 🌐 NETWORK HANDLERS
 // =========================
 export const handleOnline = () => {
   notify({ status: "online" });
@@ -138,6 +163,6 @@ setInterval(() => {
 }, 15000);
 
 // =========================
-// 🚀 INITIAL LOAD
+// 🚀 INIT
 // =========================
 updatePendingCount();

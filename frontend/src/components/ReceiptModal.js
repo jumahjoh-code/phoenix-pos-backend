@@ -1,32 +1,56 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useMemo } from "react";
 
 export default function ReceiptModal({ receipt, onClose }) {
   const hasPrinted = useRef(false);
 
+  // =========================
+  // 💰 FORMATTERS
+  // =========================
   const formatCurrency = (value) =>
     `KES ${Number(value || 0).toLocaleString()}`;
 
+  const formattedDate = useMemo(() => {
+    return new Date(receipt?.date || Date.now()).toLocaleString();
+  }, [receipt]);
+
+  const items = useMemo(() => {
+    if (!Array.isArray(receipt?.items)) return [];
+    return receipt.items;
+  }, [receipt]);
+
+  // =========================
+  // 🖨️ PRINT HANDLER (SAFE)
+  // =========================
   useEffect(() => {
-    if (receipt && !hasPrinted.current) {
-      hasPrinted.current = true;
+    if (!receipt || hasPrinted.current) return;
 
-      setTimeout(() => {
-        window.print();
+    hasPrinted.current = true;
 
-        setTimeout(() => {
-          onClose?.();
-          hasPrinted.current = false;
-        }, 1500);
-      }, 300);
-    }
+    const printTimer = setTimeout(() => {
+      window.print();
+
+      const closeTimer = setTimeout(() => {
+        onClose?.();
+        hasPrinted.current = false;
+      }, 1200);
+
+      return () => clearTimeout(closeTimer);
+    }, 250);
+
+    return () => clearTimeout(printTimer);
   }, [receipt, onClose]);
 
   if (!receipt) return null;
+
+  const subtotal = receipt.total_amount || receipt.total || 0;
+  const paid = receipt.amount_paid || 0;
+  const change = receipt.balance || 0;
 
   return (
     <div style={styles.overlay}>
       <div className="receipt-print" style={styles.receipt}>
 
+        {/* PRINT CSS */}
         <style>
 {`
 @media print {
@@ -52,18 +76,20 @@ export default function ReceiptModal({ receipt, onClose }) {
 `}
         </style>
 
+        {/* HEADER */}
         <div style={styles.center}>
           <strong style={{ fontSize: "14px" }}>PHOENIX POS</strong><br/>
           Nairobi, Kenya<br/>
           ------------------------------<br/>
-          Receipt #{receipt.sale_id || receipt.id}<br/>
-          {new Date(receipt.date || Date.now()).toLocaleString()}
+          Receipt #{receipt.sale_id || receipt.id || "-"}<br/>
+          {formattedDate}
         </div>
 
         <div style={styles.divider}></div>
 
-        {receipt.items?.length > 0 ? (
-          receipt.items.map((item, index) => {
+        {/* ITEMS */}
+        {items.length > 0 ? (
+          items.map((item, index) => {
             const qty = Number(item.quantity || 0);
             const price = Number(item.price || item.unit_price || 0);
             const total = qty * price;
@@ -87,28 +113,31 @@ export default function ReceiptModal({ receipt, onClose }) {
 
         <div style={styles.divider}></div>
 
+        {/* TOTALS */}
         <div style={styles.row}>
           <span>Subtotal</span>
-          <span>{formatCurrency(receipt.total_amount || receipt.total)}</span>
+          <span>{formatCurrency(subtotal)}</span>
         </div>
 
         <div style={styles.row}>
           <span>Paid</span>
-          <span>{formatCurrency(receipt.amount_paid)}</span>
+          <span>{formatCurrency(paid)}</span>
         </div>
 
         <div style={styles.row}>
           <span>Change</span>
-          <span>{formatCurrency(receipt.balance)}</span>
+          <span>{formatCurrency(change)}</span>
         </div>
 
         <div style={styles.divider}></div>
 
+        {/* FOOTER */}
         <div style={styles.center}>
           *** THANK YOU ***<br/>
           Visit Again!
         </div>
 
+        {/* ACTION */}
         <button onClick={onClose} style={styles.closeBtn}>
           Close
         </button>
@@ -118,6 +147,9 @@ export default function ReceiptModal({ receipt, onClose }) {
   );
 }
 
+// =========================
+// 🎨 STYLES
+// =========================
 const styles = {
   overlay: {
     position: "fixed",

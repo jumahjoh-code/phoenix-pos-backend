@@ -19,14 +19,11 @@ from app.models.sale_item import SaleItem
 from app.models.user import User
 
 
-router = APIRouter(
-    prefix="/sales",
-    tags=["Sales"]
-)
+router = APIRouter(prefix="/sales", tags=["Sales"])
 
 
 # =========================
-# UTIL: DATE RANGE HANDLER
+# 📅 DATE RANGE
 # =========================
 def get_start_date(range: str):
     now = datetime.now()
@@ -42,7 +39,7 @@ def get_start_date(range: str):
 
 
 # =========================
-# HELPER: BUILD RECEIPT
+# 🧾 RECEIPT BUILDER
 # =========================
 def build_receipt(sale, current_user=None):
     return {
@@ -57,8 +54,8 @@ def build_receipt(sale, current_user=None):
                 "product_id": item.product_id,
                 "product_name": item.product.name if item.product else "Item",
                 "quantity": item.quantity,
-                "price": item.price,
-                "total": item.quantity * item.price
+                "price": float(item.price),
+                "total": float(item.quantity * item.price)
             }
             for item in sale.items
         ],
@@ -72,7 +69,15 @@ def build_receipt(sale, current_user=None):
 
 
 # =========================
-# COMPLETE SALE
+# 🧾 RECEIPT NUMBER GENERATOR (IMPORTANT)
+# =========================
+def generate_receipt_number():
+    now = datetime.now()
+    return f"RCPT-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+
+
+# =========================
+# 💰 COMPLETE SALE (HARDENED)
 # =========================
 @router.post("/complete")
 def complete_sale(
@@ -84,13 +89,17 @@ def complete_sale(
     total = data.get("total")
     payments = data.get("payments", [])
 
+    # 🔒 VALIDATION
     if not items or not isinstance(items, list):
         raise HTTPException(status_code=400, detail="Items must be provided")
 
-    if total is None:
-        raise HTTPException(status_code=400, detail="Total is required")
+    if total is None or float(total) <= 0:
+        raise HTTPException(status_code=400, detail="Invalid total")
 
     try:
+        # =========================
+        # 🧾 CREATE SALE
+        # =========================
         sale = create_sale(
             db=db,
             items=items,
@@ -100,13 +109,19 @@ def complete_sale(
 
         sale_id = sale.id
 
-        # HANDLE PAYMENTS
+        # =========================
+        # 💳 PAYMENTS
+        # =========================
+        total_paid = 0
+
         for p in payments:
             method = p.get("method")
             amount = float(p.get("amount", 0))
 
             if amount <= 0:
                 continue
+
+            total_paid += amount
 
             if method == "cash":
                 mark_cash_payment(db=db, sale_id=sale_id, amount=amount)
@@ -119,15 +134,27 @@ def complete_sale(
                     method="mpesa"
                 )
 
-        # SYNC FINANCIALS
+        # =========================
+        # 🔒 PAYMENT VALIDATION (CRITICAL)
+        # =========================
+        if total_paid < float(total):
+            raise HTTPException(status_code=400, detail="Insufficient payment")
+
+        # =========================
+        # 🔄 SYNC FINANCIALS
+        # =========================
         sync_sale_financials(db, sale_id)
 
-        # RECEIPT NUMBER
-        sale.receipt_number = f"RCPT-{uuid.uuid4().hex[:8].upper()}"
+        # =========================
+        # 🧾 RECEIPT NUMBER
+        # =========================
+        sale.receipt_number = generate_receipt_number()
 
         db.commit()
 
-        # RELOAD
+        # =========================
+        # 🔁 RELOAD (SAFE)
+        # =========================
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
             joinedload(Sale.user)
@@ -142,15 +169,15 @@ def complete_sale(
     except Exception as e:
         db.rollback()
         print("🔥 FINAL ERROR:", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # =========================
-# LIST SALES
+# 📋 LIST SALES
 # =========================
 @router.get("/")
 def list_sales(db: Session = Depends(get_db)):
-    sales = db.query(Sale).order_by(Sale.id.desc()).all()
+    sales = db.query(Sale).order_by(Sale.id.desc()).limit(100).all()
 
     return [
         {
@@ -167,7 +194,7 @@ def list_sales(db: Session = Depends(get_db)):
 
 
 # =========================
-# GET SINGLE SALE
+# 🔍 GET SINGLE SALE
 # =========================
 @router.get("/{sale_id}")
 def get_sale(sale_id: int, db: Session = Depends(get_db)):
@@ -183,7 +210,7 @@ def get_sale(sale_id: int, db: Session = Depends(get_db)):
 
 
 # =========================
-# TODAY SUMMARY
+# 📊 TODAY SUMMARY
 # =========================
 @router.get("/summary/today")
 def today_summary(db: Session = Depends(get_db)):
@@ -197,9 +224,7 @@ def today_summary(db: Session = Depends(get_db)):
         func.coalesce(func.sum(Sale.total_amount), 0),
         func.coalesce(func.sum(Sale.cost_total), 0),
         func.coalesce(func.sum(Sale.amount_paid), 0)
-    ).filter(
-        Sale.created_at.between(start, end)
-    ).first()
+    ).filter(Sale.created_at.between(start, end)).first()
 
     transactions, total_sales, total_cost, cash_collected = result
 
@@ -213,7 +238,7 @@ def today_summary(db: Session = Depends(get_db)):
 
 
 # =========================
-# DAILY REPORT
+# 📈 DAILY REPORT
 # =========================
 @router.get("/reports/daily")
 def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
@@ -231,12 +256,10 @@ def sales_daily(range: str = "7d", db: Session = Depends(get_db)):
 
 
 # =========================
-# CASHIER PERFORMANCE REPORT (🔥 FIXED)
+# 👨‍💼 CASHIER PERFORMANCE
 # =========================
 @router.get("/reports/cashier-performance")
 def cashier_performance(range: str = "today", db: Session = Depends(get_db)):
-    print("🔥 CASHIER PERFORMANCE ENDPOINT HIT")
-
     start_date = get_start_date(range)
 
     results = db.query(

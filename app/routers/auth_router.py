@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.models.user import User
@@ -15,24 +16,29 @@ from app.core.security import (
 
 from app.core.token_blacklist import blacklist_token
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
 
+router = APIRouter(prefix="/auth", tags=["Auth"])
 security = HTTPBearer()
 
 
 # =========================
-# 🔐 LOGIN
+# 📦 REFRESH REQUEST SCHEMA (FIX)
+# =========================
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+# =========================
+# 🔐 LOGIN (HARDENED)
 # =========================
 @router.post("/login")
 def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.username == data.username).first()
 
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid username")
-
-    if not verify_password(data.password, user.password):
-        raise HTTPException(status_code=400, detail="Invalid password")
+    # 🔒 Generic error (prevents user enumeration)
+    if not user or not verify_password(data.password, user.password):
+        raise HTTPException(status_code=400, detail="Invalid credentials")
 
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User inactive")
@@ -43,9 +49,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         "id": user.id
     }
 
+    access_token = create_access_token(payload)
+    refresh_token = create_refresh_token(payload)
+
     return {
-        "access_token": create_access_token(payload),
-        "refresh_token": create_refresh_token(payload),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": {
             "id": user.id,
@@ -56,12 +65,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
 
 # =========================
-# 🔄 REFRESH TOKEN
+# 🔄 REFRESH TOKEN (FIXED)
 # =========================
 @router.post("/refresh")
-def refresh_token(refresh_token: str):
+def refresh_token(data: RefreshRequest):
 
-    payload = verify_token(refresh_token, expected_type="refresh")
+    payload = verify_token(data.refresh_token, expected_type="refresh")
 
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -78,13 +87,16 @@ def refresh_token(refresh_token: str):
 
 
 # =========================
-# 🔓 LOGOUT (BLACKLIST)
+# 🔓 LOGOUT (BLACKLIST SAFE)
 # =========================
 @router.post("/logout")
 def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
     token = credentials.credentials
 
-    blacklist_token(token)
+    try:
+        blacklist_token(token)
+    except Exception as e:
+        print("Blacklist error:", e)
 
     return {"message": "Logged out successfully"}
