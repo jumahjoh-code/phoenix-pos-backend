@@ -1,17 +1,13 @@
-// src/pages/Login.js
-
 import React, { useState } from "react";
-import { api } from "../services/api";
+import { authFetch } from "../core/api/apiClient";
 
 export default function Login({ onLoginSuccess }) {
-
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const handleLogin = async () => {
-
     if (loading) return;
 
     setError(null);
@@ -24,10 +20,23 @@ export default function Login({ onLoginSuccess }) {
     try {
       setLoading(true);
 
-      const data = await api.post("/auth/login", {
-        username,
-        password
+      const res = await authFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          username: username.trim(),
+          password: password.trim(),
+        }),
       });
+
+      // =========================
+      // ❌ HANDLE ERROR
+      // =========================
+      if (!res.ok) {
+        setError(res.error || "Login failed");
+        return;
+      }
+
+      const data = res.data;
 
       // =========================
       // 🔐 STORE AUTH DATA
@@ -39,7 +48,7 @@ export default function Login({ onLoginSuccess }) {
       // =========================
       // 🚀 SUCCESS
       // =========================
-      onLoginSuccess(data.user);
+      onLoginSuccess && onLoginSuccess(data.user);
 
     } catch (err) {
       console.error(err);
@@ -47,7 +56,7 @@ export default function Login({ onLoginSuccess }) {
       if (!navigator.onLine) {
         setError("No internet connection");
       } else {
-        setError(err.message || "Login failed");
+        setError("Login failed");
       }
 
     } finally {
@@ -106,7 +115,6 @@ export default function Login({ onLoginSuccess }) {
 // =========================
 
 const styles = {
-
   container: {
     display: "flex",
     justifyContent: "center",
