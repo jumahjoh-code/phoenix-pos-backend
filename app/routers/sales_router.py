@@ -63,7 +63,7 @@ def build_receipt(sale, current_user=None):
         "payments": [
             {
                 "amount": float(p.amount),
-                "method": p.method,
+                "method": p.payment_method,  # ✅ FIXED
                 "reference": p.reference,
                 "date": p.created_at
             }
@@ -81,7 +81,7 @@ def build_receipt(sale, current_user=None):
 
 
 # =========================
-# 🧾 RECEIPT NUMBER (SEQUENTIAL)
+# 🧾 RECEIPT NUMBER
 # =========================
 def generate_receipt_number(db: Session):
     today = datetime.now().strftime("%Y%m%d")
@@ -114,14 +114,11 @@ def complete_sale(
     payments = data.get("payments", [])
     customer_id = data.get("customer_id")
 
-    # 🔒 VALIDATION
     if not items or not isinstance(items, list):
         raise HTTPException(status_code=400, detail="Items must be provided")
 
     try:
-        # =========================
         # 🧾 CREATE SALE
-        # =========================
         sale = create_sale(
             db=db,
             items=items,
@@ -131,9 +128,7 @@ def complete_sale(
 
         sale_id = sale.id
 
-        # =========================
         # 💳 PAYMENTS
-        # =========================
         for p in payments:
             amount = float(p.get("amount", 0))
             method = p.get("method", "cash")
@@ -150,21 +145,15 @@ def complete_sale(
                 reference=reference
             )
 
-        # =========================
         # 🔄 SYNC FINANCIALS
-        # =========================
         sync_sale_financials(db, sale_id)
 
-        # =========================
         # 🧾 RECEIPT NUMBER
-        # =========================
         sale.receipt_number = generate_receipt_number(db)
 
         db.commit()
 
-        # =========================
-        # 🔁 SAFE RELOAD
-        # =========================
+        # 🔁 RELOAD
         sale = db.query(Sale).options(
             joinedload(Sale.items).joinedload(SaleItem.product),
             joinedload(Sale.user),

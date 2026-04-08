@@ -1,68 +1,31 @@
 import { authFetch } from "../api/apiClient";
 
-// ==========================
-// 📦 CREATE BACKUP
-// ==========================
 export const createBackup = async () => {
   try {
-    const res = await authFetch("/backup/create", {
-      method: "POST",
-    });
-
-    const data = await res.json();
-
-    return {
-      ok: res.ok,
-      data,
-      error: data?.detail || "Backup failed",
-    };
+    const res = await authFetch("/api/backup/create");
+    return { ok: true, data: res };
   } catch (err) {
-    console.error("❌ createBackup error:", err);
-    return { ok: false, error: "Network error" };
+    return { ok: false, error: err.message };
   }
 };
 
-
-// ==========================
-// 📂 GET BACKUPS
-// ==========================
 export const getBackups = async () => {
   try {
-    const res = await authFetch("/backup/list");
-
-    const data = await res.json();
-
-    return {
-      ok: res.ok,
-      data,
-      error: data?.detail || "Failed to fetch backups",
-    };
+    const res = await authFetch("/api/backup/list");
+    return { ok: true, data: res };
   } catch (err) {
-    console.error("❌ getBackups error:", err);
-    return { ok: false, error: "Network error" };
+    return { ok: false, error: err.message };
   }
 };
 
-
-// ==========================
-// ♻️ RESTORE BACKUP
-// ==========================
 export const restoreBackup = async (file) => {
   try {
-    const res = await authFetch("/backup/restore", {
+    const res = await authFetch("/api/backup/restore", {
       method: "POST",
       body: JSON.stringify({ file }),
     });
-
-    const data = await res.json();
-
-    return {
-      ok: res.ok,
-      data,
-      error: data?.detail || "Restore failed",
-    };
+    return { ok: true, data: res };
   } catch (err) {
-    console.error("❌ restoreBackup error:", err);
-    return { ok: false, error: "Network error" };
+    return { ok: false, error: err.message };
   }
 };
