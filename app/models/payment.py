@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, Float, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Numeric
 from datetime import datetime
+from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 
 
@@ -15,8 +17,8 @@ class Payment(Base):
     # cash, mpesa, card
     payment_method = Column(String, nullable=False, index=True)
 
-    # 💰 AMOUNT PAID
-    amount = Column(Float, nullable=False)
+    # 💰 AMOUNT PAID (SAFE)
+    amount = Column(Numeric(12, 2), nullable=False)
 
     # 📌 STATUS
     # pending, completed, failed
@@ -28,3 +30,8 @@ class Payment(Base):
 
     # ⏱️ TIMESTAMP
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # =========================
+    # 🔥 RELATIONSHIP (CRITICAL FIX)
+    # =========================
+    sale = relationship("Sale", back_populates="payments")
